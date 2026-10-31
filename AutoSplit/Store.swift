@@ -140,7 +140,7 @@ final class ScannerStore:ObservableObject {
                 let edgeNote=leaf.edgeFill ? (result.changed>0 ? "Край оброблено":"Край перевірено — без змін") : "Очистку краю вимкнено"
                 documents[d].pages[p].note=([edgeNote]+previous).joined(separator:" · ")
                 save()
-            } catch {error=error.localizedDescription;break}
+            } catch {self.error=error.localizedDescription;break}
         }
         status=stopped ? "Зупинено. Обробку країв можна продовжити" : "Краї перевірено"
     }

@@ -30,9 +30,9 @@ struct DocumentPager:UIViewControllerRepresentable {
             if let old=loaded[descriptor.id] {old.updateDescriptor(descriptor);return old}
             let page=DocumentPageController(descriptor)
             page.zoomChanged={ [weak self,weak page] zoomed in
-                guard let self,let page,controller?.viewControllers?.first === page else {return}
-                controller?.dataSource=zoomed ? nil:self
-                for gesture in controller?.gestureRecognizers ?? [] {gesture.isEnabled = !zoomed}
+                guard let self,let page,self.controller?.viewControllers?.first === page else {return}
+                self.controller?.dataSource=zoomed ? nil:self
+                for gesture in self.controller?.gestureRecognizers ?? [] {gesture.isEnabled = !zoomed}
             }
             loaded[descriptor.id]=page;return page
         }
@@ -48,12 +48,12 @@ struct DocumentPager:UIViewControllerRepresentable {
             controller.dataSource=self
             controller.setViewControllers([page(target)],direction:next>=old ? .forward:.reverse,animated:animated && visible != nil) { [weak self] _ in
                 guard let self else {return}
-                transitioning=false
+                self.transitioning=false
                 controller.dataSource=self
                 for gesture in controller.gestureRecognizers {gesture.isEnabled=true}
-                trim()
+                self.trim()
                 // Rapid arrow/thumbnail taps are queued, never discarded mid-transition.
-                reconcile(animated:true)
+                self.reconcile(animated:true)
             }
         }
         func trim() {
@@ -111,12 +111,12 @@ struct DocumentPager:UIViewControllerRepresentable {
         let file=descriptor.file
         ScanImageLoader.shared.load(file,limit:limit) { [weak self] image in
             DispatchQueue.main.async {
-                guard let self,descriptor.file==file else {return}
-                let first=picture.image==nil
-                let oldAspect=picture.image.map {$0.size.width/$0.size.height}
-                picture.image=image;spinner.stopAnimating()
+                guard let self,self.descriptor.file==file else {return}
+                let first=self.picture.image==nil
+                let oldAspect=self.picture.image.map {$0.size.width/$0.size.height}
+                self.picture.image=image;self.spinner.stopAnimating()
                 let changedAspect=oldAspect != nil && image != nil && abs(oldAspect!-image!.size.width/image!.size.height)>0.02
-                if first || changedAspect {fitted = .zero;view.setNeedsLayout()}
+                if first || changedAspect {self.fitted = .zero;self.view.setNeedsLayout()}
             }
         }
     }
