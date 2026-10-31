@@ -4,6 +4,7 @@ struct CleanupEditor:View {
     @Environment(\.dismiss) private var dismiss
     let file:String
     let automatic:Bool
+    let reference:Leaf?
     let done:([CleanupStroke])->Void
     @State private var strokes:[CleanupStroke]
     @State private var current:[Point]=[]
@@ -11,8 +12,8 @@ struct CleanupEditor:View {
     @State private var preview:UIImage?
     @State private var working=false
     @State private var error:String?
-    init(file:String,initial:[CleanupStroke],automatic:Bool,done:@escaping([CleanupStroke])->Void) {
-        self.file=file;self.automatic=automatic;self.done=done;_strokes=State(initialValue:initial)
+    init(file:String,initial:[CleanupStroke],automatic:Bool,reference:Leaf?=nil,done:@escaping([CleanupStroke])->Void) {
+        self.file=file;self.automatic=automatic;self.reference=reference;self.done=done;_strokes=State(initialValue:initial)
     }
     var body:some View {
         NavigationStack {
@@ -74,10 +75,11 @@ struct CleanupEditor:View {
     }
     private func renderPreview() {
         working=true;error=nil
-        let file=self.file,strokes=self.strokes,automatic=self.automatic
+        let file=self.file,strokes=self.strokes,automatic=self.automatic,reference=self.reference
         Task {
             do {
                 preview=try await Task.detached(priority:.userInitiated) {
+                    if var page=reference {page.cleanupStrokes=strokes;return try Imaging.render(page)}
                     guard let image=Disk.image(file) else {throw ScanError.message("Оригінал відсутній")}
                     return try Imaging.cleanRim(image,automatic:automatic,strokes:strokes)
                 }.value

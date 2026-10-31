@@ -5,6 +5,8 @@ struct PageEditor:View {
     @Environment(\.dismiss) private var dismiss
     let documentID:UUID
     @State var leaf:Leaf
+    var beginCrop=false
+    @State private var didShowInitialCrop=false
     @State private var cropping=false
     @State private var textImage:UIImage?
     @State private var cleaning=false
@@ -28,12 +30,12 @@ struct PageEditor:View {
                 VStack(alignment:.leading,spacing:16) {
                     Text("Вигляд сторінки").font(.headline)
                     Picker("Обробка",selection:$leaf.finish) { ForEach(Finish.allCases,id:\.self){Text($0.rawValue).tag($0)} }.pickerStyle(.segmented)
-                    Toggle("Продовжити папір за контуром",isOn:$leaf.edgeFill).tint(.mint)
-                    Text("Фактура продовжується з м’яким нахлестом на папір. Текст і кольорові позначки всередині нахлесту захищені; перевірте результат.").font(.caption).foregroundStyle(.secondary)
+                    Toggle("Продовжити папір за контуром",isOn:Binding(get:{leaf.edgeFill && (leaf.sourceKind=="camera" || leaf.sourceKind=="image")},set:{leaf.edgeFill=$0})).tint(.mint).disabled(leaf.sourceKind != "camera" && leaf.sourceKind != "image")
+                    Text(leaf.sourceKind=="camera" || leaf.sourceKind=="image" ? "Обробляється лише вузька смуга після підтвердженої обробки меж. Перевірте текст і печатки." : "Для готових PDF автоматичну заливку вимкнено. Сторінка зберігається цілком; за потреби доступний ручний пензель.").font(.caption).foregroundStyle(.secondary)
                     if !leaf.note.isEmpty { Label(leaf.note,systemImage:"info.circle").font(.caption).foregroundStyle(.secondary) }
                 }.padding(20).background(Color.card,in:RoundedRectangle(cornerRadius:22)).padding(.horizontal)
-                Button("Повернути оригінальний вигляд") {
-                    leaf.quad=nil;leaf.turns=0;leaf.manualTurns=0;leaf.finish = .natural;leaf.edgeFill=false;leaf.cleanupStrokes=nil
+                Button("Залишити весь кадр без обробки") {
+                    leaf.quad = .full;leaf.manualCrop=true;leaf.cropVerified=true;leaf.turns=0;leaf.manualTurns=0;leaf.finish = .natural;leaf.edgeFill=false;leaf.cleanupStrokes=nil
                     preview=Disk.image(leaf.original)
                 }.font(.subheadline).foregroundStyle(.secondary)
             }.padding(.vertical)
@@ -42,12 +44,13 @@ struct PageEditor:View {
         .toolbar { ToolbarItem(placement:.topBarTrailing) {
             Button("Зберегти") { Task { await store.updatePage(documentID,leaf);if store.error == nil { dismiss() } } }.fontWeight(.semibold).disabled(store.busy)
         } }
+        .task {if beginCrop && !didShowInitialCrop {didShowInitialCrop=true;cropping=true}}
         .onChange(of:leaf.finish){_,_ in refresh()}.onChange(of:leaf.edgeFill){_,_ in refresh()}
         .sheet(isPresented:$cropping) {
-            CornerEditor(file:leaf.original,initial:leaf.quad ?? .full) { q in leaf.quad=q;refresh() }
+            CornerEditor(file:leaf.original,initial:leaf.quad ?? .full) { q in leaf.quad=q;leaf.manualCrop=true;leaf.cropVerified=true;refresh() }
         }
         .sheet(isPresented:$cleaning) {
-            CleanupEditor(file:leaf.original,initial:leaf.cleanupStrokes ?? [],automatic:leaf.edgeFill) { strokes in
+            CleanupEditor(file:leaf.original,initial:leaf.cleanupStrokes ?? [],automatic:false,reference:leaf) { strokes in
                 leaf.cleanupStrokes=strokes;refresh()
             }
         }
@@ -109,10 +112,10 @@ struct CornerEditor:View {
                     }.padding(20)
                 }
                 if !quad.valid { Text("Кути не повинні перетинатися").foregroundStyle(.red).font(.caption) }
-            }.background(Color.canvas).navigationTitle("Межі аркуша").navigationBarTitleDisplayMode(.inline)
+            }.background(Color.canvas).navigationTitle("Обрізка").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement:.cancellationAction){Button("Скасувати"){dismiss()}}
-                ToolbarItem(placement:.confirmationAction){Button("Застосувати"){done(quad);dismiss()}.disabled(!quad.valid)}
+                ToolbarItem(placement:.cancellationAction){Button {dismiss()} label:{Image(systemName:"xmark")}.accessibilityLabel("Скасувати")}
+                ToolbarItem(placement:.confirmationAction){Button {done(quad);dismiss()} label:{Image(systemName:"checkmark").fontWeight(.semibold)}.disabled(!quad.valid).accessibilityLabel("Застосувати межі")}
             }
         }
     }

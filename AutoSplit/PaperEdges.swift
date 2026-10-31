@@ -33,6 +33,12 @@ extension Imaging {
             }
         }
         var mask=automatic ? PaperRaster.mask(rgba,width:w,height:h,hint:hint) : [UInt8](repeating:0,count:w*h)
+        // No broad "outside document" erasure. Only a small post-crop edge strip
+        // may be repaired automatically; explicit brush strokes remain available.
+        if automatic {
+            let rim=max(2,min(36,Int(Double(min(w,h))*0.015)))
+            for y in 0..<h {for x in 0..<w where min(x,min(y,min(w-1-x,h-1-y)))>=rim {mask[y*w+x]=0}}
+        }
         if !strokes.isEmpty {
             let format=UIGraphicsImageRendererFormat();format.scale=1;format.opaque=true
             let painted=UIGraphicsImageRenderer(size:CGSize(width:w,height:h),format:format).image { renderer in

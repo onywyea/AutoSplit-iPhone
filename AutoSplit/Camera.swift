@@ -10,6 +10,9 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     private let frames=DispatchQueue(label:"scan.edges")
     private let output=AVCapturePhotoOutput()
     private var camera:AVCaptureDevice?
+    private let processingLock=NSLock()
+    private var processing=false
+    @Published var preparing=false
     private var configured=false
     private var capturing=false
     private var lastTime=Date.distantPast
@@ -75,6 +78,11 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             }
         }
     }
+    private var processingNow:Bool {processingLock.lock();defer {processingLock.unlock()};return processing}
+    func setProcessing(_ value:Bool) {
+        processingLock.lock();processing=value;processingLock.unlock()
+        DispatchQueue.main.async {self.preparing=value;if value {self.message="Визначення меж аркуша…"}}
+    }
     func stop() { queue.async { if self.session.isRunning { self.session.stopRunning() } } }
     func setAuto(_ value:Bool) { frames.async { self.auto=value; self.stable=0 } }
     func toggleFlash() {
@@ -112,12 +120,12 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     private func pauseDetectionAfterShot() {
         frames.async {
             self.ignoreFramesUntil=Date().addingTimeInterval(1.2)
-            self.lastSignature=nil; self.stable=0; self.armed=false
+            self.stable=0; self.armed=false
         }
     }
     func shoot() {
         queue.async {
-            guard self.configured,self.session.isRunning,!self.capturing else { return }
+            guard self.configured,self.session.isRunning,!self.capturing,!self.processingNow else { return }
             self.capturing=true
             DispatchQueue.main.async { self.shooting=true }
             let settings=AVCapturePhotoSettings()
@@ -157,7 +165,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         return bytes
     }
     func captureOutput(_ output:AVCaptureOutput,didOutput sampleBuffer:CMSampleBuffer,from connection:AVCaptureConnection) {
-        guard Date()>ignoreFramesUntil,Date().timeIntervalSince(lastTime)>0.45,let buffer=CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard !processingNow,Date()>ignoreFramesUntil,Date().timeIntervalSince(lastTime)>0.45,let buffer=CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastTime=Date()
         let request=VNDetectRectanglesRequest(); request.minimumConfidence=0.8; request.maximumObservations=1
         request.minimumSize=0.35; request.minimumAspectRatio=0.3; request.quadratureTolerance=25
@@ -226,7 +234,7 @@ struct CaptureView:View {
     let documentID:UUID
     var pages:[Leaf] {store.document(documentID)?.pages ?? []}
     var count:Int {pages.count}
-    var waiting:Bool {store.savingPhotos>0 || engine.shooting}
+    var waiting:Bool {store.savingPhotos>0 || engine.shooting || engine.preparing}
     var body:some View {
         ZStack {
             // Full-screen camera: no inset document field, rounded frame or fixed dashed rectangle.
@@ -290,11 +298,20 @@ struct CaptureView:View {
                 }.padding(.bottom,12)
             }.foregroundStyle(.white)
         }.background(.black)
-        .onAppear {engine.captured={image in Task {await store.addImage(image,to:documentID)}};engine.start()}
+        .onAppear {
+            engine.captured={ [weak engine] image in
+                engine?.setProcessing(true)
+                Task {
+                    await store.addImage(image,to:documentID,sourceKind:"camera",prepare:true)
+                    engine?.setProcessing(false)
+                }
+            }
+            engine.start()
+        }
         .onDisappear {engine.stop();store.save()}
         .onChange(of:auto){_,value in engine.setAuto(value)}
         .onChange(of:reviewing){_,value in if value {engine.stop()}}
-        .sheet(isPresented:$reviewing,onDismiss:{engine.start()}) {
+        .fullScreenCover(isPresented:$reviewing,onDismiss:{engine.start()}) {
             if let first=pages.last {
                 NavigationStack {
                     PageBrowser(documentID:documentID,initialPageID:first.id)

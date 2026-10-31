@@ -155,7 +155,7 @@ struct DocumentView:View {
         .navigationTitle("Скан").navigationBarTitleDisplayMode(.inline).toolbar(.visible,for:.navigationBar)
         .toolbar {
             ToolbarItem(placement:.topBarTrailing){EditButton().disabled(store.busy)}
-            ToolbarItem(placement:.topBarTrailing){Menu{Button("Повторити автоповорот усіх сторінок"){Task{await store.rotateAutomatically(documentID)}};Button("Видалити скан",role:.destructive){deleting=true}}label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy)}
+            ToolbarItem(placement:.topBarTrailing){Menu{Button("Відновити з оригіналів і обробити заново"){Task{await store.rebuildSafely(documentID)}};Button("Повторити автоповорот усіх сторінок"){Task{await store.rotateAutomatically(documentID)}};Button("Видалити скан",role:.destructive){deleting=true}}label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy)}
         }
         .fullScreenCover(isPresented:$capturing,onDismiss:{Task{await store.analyze(documentID)}}){CaptureView(documentID:documentID)}
         .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true){result in

@@ -383,3 +383,31 @@ enum RasterFlow {
         return weight
     }
 }
+
+// A rectangle inside a document is not necessarily the sheet. Reject automatic
+// crops that exclude reliable text; PDF pages keep their full canvas by default.
+enum CropSafety {
+    static func area(_ quad:Quad)->Double {
+        guard quad.points.count==4 else {return 0}
+        var a=0.0
+        for i in 0..<4 {let p=quad.points[i],q=quad.points[(i+1)%4];a+=p.x*q.y-q.x*p.y}
+        return abs(a)*0.5
+    }
+    static func contains(_ point:Point,in quad:Quad,tolerance:Double=0.008)->Bool {
+        guard quad.valid else {return false}
+        for i in 0..<4 {
+            let a=quad.points[i],b=quad.points[(i+1)%4]
+            let cross=(b.x-a.x)*(point.y-a.y)-(b.y-a.y)*(point.x-a.x)
+            let length=hypot(b.x-a.x,b.y-a.y)
+            if cross < -tolerance*length {return false}
+        }
+        return true
+    }
+    static func preserves(_ content:[Quad],inside crop:Quad)->Bool {
+        crop.valid && content.allSatisfy {box in box.points.allSatisfy {contains($0,in:crop)}}
+    }
+    static func usable(_ crop:Quad,content:[Quad],camera:Bool)->Bool {
+        let a=area(crop)
+        return crop.valid && a>=0.055 && (!camera || a<0.94) && preserves(content,inside:crop)
+    }
+}

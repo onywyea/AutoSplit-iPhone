@@ -16,7 +16,7 @@ final class ScannerStore:ObservableObject {
     func save() { do { try Disk.save(documents) } catch { self.error=error.localizedDescription } }
     func newDocument()->UUID { let doc=ScanDocument(); documents.insert(doc,at:0); save(); return doc.id }
     func cancel() { stopped=true; status="Зупинка після поточної сторінки…" }
-    func addImage(_ image:UIImage,to id:UUID) async {
+    func addImage(_ image:UIImage,to id:UUID,sourceKind:String="image",prepare:Bool=false,pdfFile:String?=nil,pdfPage:Int?=nil) async {
         guard index(id) != nil else { return }
         savingPhotos += 1
         defer { savingPhotos -= 1 }
@@ -29,7 +29,22 @@ final class ScannerStore:ObservableObject {
                 }
             }.value
             guard let i=index(id) else { return }
-            documents[i].pages.append(Leaf(original:name,output:name)); save()
+            var leaf=Leaf(original:name,output:name)
+            leaf.sourceKind=sourceKind;leaf.originalPDF=pdfFile;leaf.originalPDFPage=pdfPage
+            if sourceKind=="pdf" {leaf.quad = .full;leaf.cropVerified=true;leaf.edgeFill=false}
+            if prepare {leaf.note="Визначення меж аркуша…"}
+            documents[i].pages.append(leaf);save()
+            if prepare {
+                let snapshot=leaf
+                let preview=try await Task.detached(priority:.userInitiated) {try autoreleasepool {try Imaging.prepareCapture(snapshot)}}.value
+                let output=try await Task.detached {try Disk.writeImage(preview.image)}.value
+                if let d=index(id),let p=documents[d].pages.firstIndex(where:{$0.id==snapshot.id}) {
+                    documents[d].pages[p].output=output;documents[d].pages[p].quad=preview.quad
+                    documents[d].pages[p].cropVerified=preview.verified
+                    documents[d].pages[p].note=preview.verified ? "Межі знайдено. Розпізнавання після завершення зйомки":"Межі не знайдено — вкажіть кути або перезніміть ближче"
+                    save()
+                }
+            }
         } catch { self.error=error.localizedDescription }
     }
     func importFiles(_ urls:[URL],to id:UUID) async {
@@ -42,13 +57,16 @@ final class ScannerStore:ObservableObject {
             do {
                 if url.pathExtension.lowercased()=="pdf" {
                     guard let pdf=PDFDocument(url:url),!pdf.isLocked else { throw ScanError.message("PDF недоступний або захищений паролем") }
+                    let sourceName=UUID().uuidString+".pdf"
+                    try FileManager.default.copyItem(at:url,to:Disk.url(sourceName))
+                    try FileManager.default.setAttributes([.protectionKey:FileProtectionType.complete],ofItemAtPath:Disk.url(sourceName).path)
                     for p in 0..<pdf.pageCount {
                         if stopped { break }
                         status="Імпорт \(p+1)/\(pdf.pageCount)"
                         if let page=pdf.page(at:p) {
                             let box=page.bounds(for:.mediaBox),scale=min(4,2800/max(box.width,box.height))
                             let image=page.thumbnail(of:CGSize(width:box.width*scale,height:box.height*scale),for:.mediaBox)
-                            await addImage(image,to:id)
+                            await addImage(image,to:id,sourceKind:"pdf",pdfFile:sourceName,pdfPage:p)
                         }
                     }
                 } else {
@@ -71,7 +89,7 @@ final class ScannerStore:ObservableObject {
                 guard let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) else { continue }
                 documents[i].pages[p].output=output; documents[i].pages[p].quad=result.quad
                 documents[i].pages[p].turns=result.turns; documents[i].pages[p].text=result.text
-                documents[i].pages[p].note=result.note; documents[i].pages[p].ocrReady=true; save()
+                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified; documents[i].pages[p].ocrReady=true; save()
             } catch {
                 if let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) { documents[i].pages[p].note=error.localizedDescription }
             }
@@ -88,6 +106,17 @@ final class ScannerStore:ObservableObject {
         error=nil;save()
         await analyze(id,only:pageID,force:true)
     }
+    func rebuildSafely(_ id:UUID) async {
+        guard !busy,let i=index(id) else {return}
+        for p in documents[i].pages.indices {
+            documents[i].pages[p].manualTurns=nil
+            documents[i].pages[p].ocrReady=false
+            documents[i].pages[p].quad=nil;documents[i].pages[p].cropVerified=nil;documents[i].pages[p].manualCrop=nil
+            documents[i].pages[p].cleanupStrokes=nil;documents[i].pages[p].finish = .natural
+            documents[i].pages[p].edgeFill=documents[i].pages[p].sourceKind=="camera" || documents[i].pages[p].sourceKind=="image"
+        }
+        error=nil;save();await analyze(id,force:true)
+    }
     func refreshNames(_ id:UUID) {
         guard let i=index(id) else { return }
         let text=documents[i].pages.map(\.text).joined(separator:"\n")
@@ -100,10 +129,10 @@ final class ScannerStore:ObservableObject {
     func rename(_ id:UUID,_ title:String) { guard let i=index(id) else{return}; documents[i].title=title; documents[i].nameConfirmed=true; save() }
     func updatePage(_ doc:UUID,_ leaf:Leaf) async {
         guard !busy,let i=index(doc),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) else{return}
-        busy=true; status="Оновлення сторінки…"; defer{busy=false}
+        busy=true;error=nil; status="Оновлення сторінки…"; defer{busy=false}
         do {
             let name=try await Task.detached { try autoreleasepool { try Disk.writeImage(Imaging.render(leaf)) } }.value
-            var edited=leaf; edited.output=name; edited.text=""; edited.ocrReady=false; edited.note="Зміни збережено — оновіть розпізнавання"
+            var edited=leaf;if edited.manualCrop==true {edited.cropVerified=true}; edited.output=name; edited.text=""; edited.ocrReady=false; edited.note="Зміни збережено — оновіть розпізнавання"
             documents[i].pages[p]=edited; documents[i].candidates=[]; save()
         } catch { self.error=error.localizedDescription }
     }
@@ -125,7 +154,29 @@ final class ScannerStore:ObservableObject {
                 var urls:[URL]=[]
                 for (n,doc) in selected.enumerated() {
                     guard !doc.pages.isEmpty else{throw ScanError.message("Скан «\(doc.title)» порожній")}
+                    if let unverified=doc.pages.firstIndex(where:{$0.sourceKind=="camera" && $0.cropVerified != true}) {
+                        throw ScanError.message("Сторінка \(unverified+1): межі аркуша не визначені. Вкажіть кути або явно залиште весь кадр у редакторі.")
+                    }
                     let url=folder.appendingPathComponent("\(n+1)_"+NameFinder.safeName(doc.title)+".pdf")
+                    // A PDF import does not need to be rasterized again on export.
+                    // Keep original page contents and only update the page rotation.
+                    let keepPDF=doc.pages.allSatisfy {
+                        $0.originalPDF != nil && $0.originalPDFPage != nil && $0.manualCrop != true && ($0.cleanupStrokes ?? []).isEmpty && $0.finish == .natural
+                    }
+                    if keepPDF {
+                        let merged=PDFDocument()
+                        var sources:[String:PDFDocument]=[:]
+                        for leaf in doc.pages {
+                            guard let file=leaf.originalPDF,let number=leaf.originalPDFPage else {throw ScanError.message("Не знайдено вихідну сторінку PDF")}
+                            if sources[file]==nil {sources[file]=PDFDocument(url:Disk.url(file))}
+                            guard let source=sources[file],let original=source.page(at:number),let page=original.copy() as? PDFPage else {throw ScanError.message("Не вдалося відкрити вихідну сторінку PDF")}
+                            page.rotation=(page.rotation+leaf.turns*90)%360
+                            merged.insert(page,at:merged.pageCount)
+                        }
+                        guard merged.write(to:url) else {throw ScanError.message("Не вдалося зберегти PDF")}
+                        urls.append(url)
+                        continue
+                    }
                     // Stream PDF pages directly to disk instead of building the whole PDF in memory.
                     guard let consumer=CGDataConsumer(url:url as CFURL) else{throw ScanError.message("Не вдалося створити PDF")}
                     var box=CGRect(x:0,y:0,width:595,height:842)

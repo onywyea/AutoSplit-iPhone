@@ -8,6 +8,11 @@ struct Leaf: Codable, Identifiable {
     var original: String
     var output: String
     var quad: Quad?
+    var sourceKind: String? = nil
+    var originalPDF: String? = nil
+    var originalPDFPage: Int? = nil
+    var manualCrop: Bool? = nil
+    var cropVerified: Bool? = nil
     var turns = 0
     var manualTurns: Int? = nil
     var finish = Finish.natural

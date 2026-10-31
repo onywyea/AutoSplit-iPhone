@@ -15,6 +15,9 @@ struct PageBrowser:View {
     var body:some View {
         VStack(spacing:0) {
             if !pages.isEmpty {
+                if let page=selectedPage,page.sourceKind=="camera",page.cropVerified != true {
+                    Button {editing=true} label:{Label("Межі не знайдено — вкажіть кути",systemImage:"crop").font(.caption.weight(.semibold)).padding(10)}.tint(.orange).disabled(store.busy)
+                }
                 TabView(selection:$selection) {
                     ForEach(Array(pages.enumerated()),id:\.element.id) { index,page in
                         Group {
@@ -23,7 +26,8 @@ struct PageBrowser:View {
                             else {Color.black}
                         }.tag(page.id)
                     }
-                }.tabViewStyle(.page(indexDisplayMode:.never)).background(.black)
+                }.tabViewStyle(.page(indexDisplayMode:.never)).frame(maxWidth:.infinity,maxHeight:.infinity).layoutPriority(1).background(.black)
+                if pages.count>1 {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal,showsIndicators:false) {
                         LazyHStack(spacing:10) {
@@ -38,6 +42,7 @@ struct PageBrowser:View {
                         }.padding(.horizontal,18).padding(.vertical,10)
                     }.onChange(of:selection) {_,id in withAnimation {proxy.scrollTo(id,anchor:.center)}}
                         .onAppear {proxy.scrollTo(selection,anchor:.center)}
+                }.frame(height:96)
                 }
                 HStack(spacing:24) {
                     Button {step(-1)} label:{Image(systemName:"chevron.left").frame(width:44,height:44)}.disabled(position==0)
@@ -45,7 +50,7 @@ struct PageBrowser:View {
                     Button {step(1)} label:{Image(systemName:"chevron.right").frame(width:44,height:44)}.disabled(position+1>=pages.count)
                 }.padding(.horizontal,16).padding(.bottom,6)
             } else {ContentUnavailableView("Немає сторінок",systemImage:"doc")}
-        }.background(Color.canvas)
+        }.frame(maxWidth:.infinity,maxHeight:.infinity).background(.black)
         .navigationTitle("\(pages.isEmpty ? 0:position+1) / \(pages.count)").navigationBarTitleDisplayMode(.inline).toolbar(.visible,for:.navigationBar)
         .toolbar {
             ToolbarItem(placement:.topBarTrailing) {
@@ -53,7 +58,7 @@ struct PageBrowser:View {
             }
         }
         .overlay(alignment:.top) {if store.busy {HStack {ProgressView();Text(store.status).font(.caption)}.padding(10).background(.regularMaterial,in:Capsule()).padding(.top,8)}}
-        .sheet(isPresented:$editing) {if let page=selectedPage {NavigationStack {PageEditor(documentID:documentID,leaf:page)}}}
+        .sheet(isPresented:$editing) {if let page=selectedPage {NavigationStack {PageEditor(documentID:documentID,leaf:page,beginCrop:page.sourceKind=="camera" && page.cropVerified != true)}}}
     }
     private func step(_ delta:Int) {
         let next=position+delta
