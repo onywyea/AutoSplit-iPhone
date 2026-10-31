@@ -60,7 +60,7 @@ enum Rules {
         return Detection(kind: unknown, starts: false, warning: candidates.isEmpty ? "Не знайдено надійного заголовка" : "Кілька типів документа на сторінці")
     }
     static func ibans(_ text: String) -> [String] {
-        let pattern = "(?i)UA(?:[ \\t\\r\\n-]*[0-9]){27}(?![0-9])"
+       let pattern = #"(?i)U[ \t\r\n-]*A(?:[ \t\r\n-]*[0-9]){27}(?![0-9])"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let ns = text as NSString
         return Array(Set(regex.matches(in: text, range: NSRange(location: 0, length: ns.length)).map {
