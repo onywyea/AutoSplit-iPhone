@@ -1,55 +1,54 @@
 import Foundation
 import UIKit
+import ImageIO
 
-struct ScanPage: Identifiable, Codable {
+enum Finish: String, Codable, CaseIterable { case natural = "Оригінальний", clean = "Чистий", mono = "Чорно-білий" }
+struct Leaf: Codable, Identifiable {
     var id = UUID()
-    var imageFile: String
-    var originalFile: String? = nil
+    var original: String
+    var output: String
+    var quad: Quad?
+    var turns = 0
+    var finish = Finish.natural
+    var edgeFill = true
     var text = ""
-    var kind = Rules.unknown
-    var starts = false
-    var warning: String? = "Потрібне розпізнавання"
-    var confidence: Float = 0
+    var note = "Очікує обробки"
+    var ocrReady = false
 }
-struct ScanSection: Identifiable, Codable {
+struct ScanDocument: Codable, Identifiable {
     var id = UUID()
-    var pageIDs: [UUID]
-    var title: String
-    var recipient = ""
-    var relation = ""
-    var reviewed = false
+    var title = "Новий скан"
+    var created = Date()
+    var pages: [Leaf] = []
+    var candidates: [NameCandidate] = []
+    var nameConfirmed = false
 }
-struct CaseData: Codable {
-    var pages: [ScanPage] = []
-    var sections: [ScanSection] = []
-    var person = ""
-    var caseName = "Комплект_ПКМУ168"
-    var notes = ""
-}
-
-enum Storage {
-    static var root: URL {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AutoSplit", isDirectory: true)
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        return url
-    }
-    static func image(_ page: ScanPage) -> UIImage? { UIImage(contentsOfFile: root.appendingPathComponent(page.imageFile).path) }
-    static func saveImage(_ image: UIImage) throws -> String {
-        let name = UUID().uuidString + ".jpg"
-        guard let data = image.jpegData(compressionQuality: 0.94) else { throw AppError.message("Не вдалося зберегти зображення") }
-        try data.write(to: root.appendingPathComponent(name), options: [.atomic, .completeFileProtection])
-        return name
-    }
-    static func save(_ value: CaseData) throws {
-        try JSONEncoder().encode(value).write(to: root.appendingPathComponent("session.json"), options: [.atomic, .completeFileProtection])
-    }
-    static func load() throws -> CaseData {
-        let url = root.appendingPathComponent("session.json")
-        guard FileManager.default.fileExists(atPath: url.path) else { return CaseData() }
-        return try JSONDecoder().decode(CaseData.self, from: Data(contentsOf: url))
-    }
-}
-enum AppError: LocalizedError {
+enum ScanError: LocalizedError {
     case message(String)
-    var errorDescription: String? { if case .message(let text) = self { return text }; return nil }
+    var errorDescription: String? { if case .message(let s) = self { return s }; return nil }
+}
+enum Disk {
+    static var root: URL {
+        let u=FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("ScanFlow-v2")
+        try? FileManager.default.createDirectory(at:u,withIntermediateDirectories:true)
+        return u
+    }
+    static func url(_ name: String) -> URL { root.appendingPathComponent(name) }
+    static func writeImage(_ image: UIImage) throws -> String {
+        let name=UUID().uuidString+".jpg"
+        guard let bytes=image.jpegData(compressionQuality:0.94) else { throw ScanError.message("Не вдалося записати сторінку") }
+        try bytes.write(to:url(name),options:[.atomic,.completeFileProtection]); return name
+    }
+    static func image(_ name: String, limit: Int = 3000) -> UIImage? {
+        guard let source=CGImageSourceCreateWithURL(url(name) as CFURL,nil),
+              let cg=CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceThumbnailMaxPixelSize:limit,kCGImageSourceCreateThumbnailWithTransform:true] as CFDictionary) else { return nil }
+        return UIImage(cgImage:cg)
+    }
+    static func save(_ documents: [ScanDocument]) throws {
+        try JSONEncoder().encode(documents).write(to:url("documents.json"),options:[.atomic,.completeFileProtection])
+    }
+    static func load() throws -> [ScanDocument] {
+        guard FileManager.default.fileExists(atPath:url("documents.json").path) else { return [] }
+        return try JSONDecoder().decode([ScanDocument].self,from:Data(contentsOf:url("documents.json")))
+    }
 }

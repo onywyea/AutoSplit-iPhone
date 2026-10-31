@@ -1,192 +1,192 @@
 import SwiftUI
-import VisionKit
 import UniformTypeIdentifiers
 
-@main
-struct AutoSplitApp: App {
-    @StateObject private var store = CaseStore()
-    var body: some Scene { WindowGroup { MainView().environmentObject(store) } }
+extension Color {
+    static let canvas=Color(uiColor:.systemGroupedBackground)
+    static let card=Color(uiColor:.secondarySystemGroupedBackground)
+    static let accent=Color(red:0.09,green:0.55,blue:0.49)
 }
-struct MainView: View {
-    @EnvironmentObject var store: CaseStore
-    @State private var scanner = false
-    @State private var importer = false
-    @State private var share = false
-    @State private var reset = false
-    @State private var regroup = false
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    TextField("ФІО військовослужбовця", text: $store.data.person)
-                    TextField("Назва: Карпачов_РВ_ПКМУ168", text: $store.data.caseName)
-                    TextField("Примітки / поля для заповнення", text: $store.data.notes, axis: .vertical)
-                } header: { Text("Комплект") } footer: {
-                    Text("Версія 0.1. ФІО та спорідненість заповнюються вручну. Дані зберігаються на пристрої.")
-                }
-                .disabled(store.busy)
-                Section {
-                    Button { scanner = true } label: { Label("Сканувати документи", systemImage: "doc.viewfinder") }
-                        .disabled(store.busy || !VNDocumentCameraViewController.isSupported)
-                    Button { importer = true } label: { Label("Імпорт PDF або фото", systemImage: "square.and.arrow.down") }.disabled(store.busy)
-                    Button { Task { await store.analyze() } } label: { Label("Розпізнати та розділити", systemImage: "wand.and.stars") }
-                        .disabled(store.busy || store.data.pages.isEmpty)
-                    if store.busy {
-                        HStack { ProgressView(); Text(store.status).font(.subheadline) }
-                        Button("Зупинити", role: .cancel) { store.cancel() }
-                    } else { Text(store.status).font(.footnote).foregroundStyle(.secondary) }
-                }
-                if !store.data.pages.isEmpty {
-                    Section("Сторінки · \(store.data.pages.count)") {
-                        NavigationLink { PagesView() } label: { Label("Переглянути та змінити межі", systemImage: "square.grid.2x2") }
-                        Button("Побудувати розділи за поточними межами") { regroup = true }.disabled(store.busy)
+@main
+struct ScanFlowApp:App {
+    @StateObject private var store=ScannerStore()
+    var body:some Scene { WindowGroup { LibraryView().environmentObject(store).tint(.accent) } }
+}
+struct LibraryView:View {
+    @EnvironmentObject var store:ScannerStore
+    @State private var path:[UUID]=[]
+    @State private var search=""
+    @State private var selecting=false
+    @State private var selected:Set<UUID>=[]
+    @State private var handingOff=false
+    var filtered:[ScanDocument] { store.documents.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) } }
+    var body:some View {
+        NavigationStack(path:$path) {
+            ScrollView {
+                VStack(alignment:.leading,spacing:24) {
+                    HStack(alignment:.top) {
+                        VStack(alignment:.leading,spacing:6) {
+                            Text("SCANFLOW").font(.caption.weight(.bold)).tracking(3).foregroundStyle(Color.accent)
+                            Text("Ваші скани").font(.system(size:34,weight:.bold,design:.rounded))
+                            Text("Чисті сторінки. Один готовий PDF.").font(.subheadline).foregroundStyle(.secondary)
+                        };Spacer()
+                        Button(selecting ? "Готово" : "Вибрати") { selecting.toggle();selected=[] }.font(.subheadline.weight(.semibold)).disabled(store.busy)
                     }
-                }
-                if !store.data.sections.isEmpty {
-                    Section("Розділи · \(store.data.sections.count)") {
-                        ForEach(store.data.sections) { section in
-                            NavigationLink { SectionEditor(sectionID: section.id) } label: {
-                                HStack {
-                                    Image(systemName: section.reviewed ? "checkmark.circle.fill" : "exclamationmark.circle")
-                                        .foregroundStyle(section.reviewed ? .green : .orange)
-                                    VStack(alignment: .leading) {
-                                        Text(section.title)
-                                        Text("\(section.pageIDs.count) стор. · \(section.relation)").font(.caption).foregroundStyle(.secondary)
+                    HStack { Image(systemName:"magnifyingglass").foregroundStyle(.secondary);TextField("Знайти документ",text:$search) }
+                        .padding(15).background(Color.card,in:RoundedRectangle(cornerRadius:16))
+                    if filtered.isEmpty {
+                        VStack(spacing:20) {
+                            Image(systemName:"doc.viewfinder").font(.system(size:54,weight:.ultraLight)).foregroundStyle(Color.accent).padding(28).background(Color.accent.opacity(0.08),in:RoundedRectangle(cornerRadius:28))
+                            Text("Перший скан — за кілька секунд").font(.title3.weight(.semibold)).multilineTextAlignment(.center)
+                            Text("Знімайте сторінки підряд. Кути, поворот і назву можна перевірити перед збереженням.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        }.frame(maxWidth:.infinity).padding(.vertical,50)
+                    }
+                    LazyVStack(spacing:12) {
+                        ForEach(filtered) { doc in
+                            Button {
+                                if selecting { if selected.contains(doc.id){selected.remove(doc.id)}else{selected.insert(doc.id)} }
+                                else{path.append(doc.id)}
+                            } label: {
+                                HStack(spacing:16) {
+                                    Thumb(file:doc.pages.first?.output).frame(width:66,height:88).clipShape(RoundedRectangle(cornerRadius:10))
+                                    VStack(alignment:.leading,spacing:8) {
+                                        Text(doc.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
+                                        Text("\(doc.pages.count) стор. · \(doc.created.formatted(date:.abbreviated,time:.omitted))").font(.caption).foregroundStyle(.secondary)
+                                        if !doc.nameConfirmed { Text(doc.candidates.isEmpty ? "Назву можна змінити" : "Знайдено ФІО — перевірте").font(.caption2).foregroundStyle(Color.accent) }
+                                    };Spacer(minLength:0)
+                                    Image(systemName:selecting ? (selected.contains(doc.id) ? "checkmark.circle.fill" : "circle") : "chevron.right").foregroundStyle(Color.accent)
+                                }.padding(14).background(Color.card,in:RoundedRectangle(cornerRadius:22))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }.padding(22)
+            }.background(Color.canvas)
+            .safeAreaInset(edge:.bottom) {
+                VStack(spacing:0) {
+                    if selecting {
+                        Button { handingOff=true } label: {Label("Підготувати для ChatGPT · \(selected.count)",systemImage:"sparkles").frame(maxWidth:.infinity).padding(18)}.buttonStyle(.borderedProminent).disabled(selected.isEmpty || store.busy)
+                    } else {
+                        Button { path.append(store.newDocument()) } label: {Label("Новий скан",systemImage:"plus").font(.headline).frame(maxWidth:.infinity).padding(18)}.buttonStyle(.borderedProminent).disabled(store.busy)
+                    }
+                }.padding(.horizontal,22).padding(.bottom,10).background(.ultraThinMaterial)
+            }
+            .navigationDestination(for:UUID.self){id in DocumentView(documentID:id)}
+            .toolbar(.hidden,for:.navigationBar)
+            .sheet(isPresented:$handingOff){HandoffView(ids:selected)}
+            .alert("Не вдалося завершити дію",isPresented:Binding(get:{store.error != nil},set:{if !$0{store.error=nil}})){Button("Зрозуміло"){store.error=nil}}message:{Text(store.error ?? "")}
+        }
+    }
+}
+struct Thumb:View {
+    let file:String?
+    var body:some View {
+        ZStack {
+            Color.white
+            if let file,let image=Disk.image(file,limit:300){Image(uiImage:image).resizable().scaledToFit()}
+            else{Image(systemName:"doc.text").font(.title2).foregroundStyle(Color.accent.opacity(0.5))}
+        }
+    }
+}
+struct DocumentView:View {
+    @EnvironmentObject var store:ScannerStore
+    @Environment(\.dismiss) private var dismiss
+    let documentID:UUID
+    @State private var capturing=false
+    @State private var importing=false
+    @State private var sharing=false
+    @State private var naming=false
+    @State private var handoff=false
+    @State private var deleting=false
+    var doc:ScanDocument? {store.document(documentID)}
+    var body:some View {
+        Group {
+            if let doc {
+                List {
+                    Section {
+                        VStack(alignment:.leading,spacing:10) {
+                            Text(doc.title).font(.system(size:28,weight:.bold,design:.rounded))
+                            HStack {Label("\(doc.pages.count) сторінок",systemImage:"doc.on.doc");Spacer();Button("Змінити назву"){naming=true}}.font(.caption)
+                            if !doc.candidates.isEmpty && !doc.nameConfirmed {
+                                Button {naming=true} label:{Label("Знайдено ФІО · вибрати назву",systemImage:"person.text.rectangle")}.font(.subheadline)
+                            }
+                        }.padding(.vertical,12)
+                    }.listRowBackground(Color.clear).listRowInsets(EdgeInsets(top:0,leading:0,bottom:0,trailing:0))
+                    if store.busy {
+                        Section { HStack{ProgressView();Text(store.status).font(.subheadline)};Button("Зупинити після сторінки"){store.cancel()} }
+                    }
+                    if doc.pages.isEmpty {
+                        Section {
+                            VStack(spacing:14){Image(systemName:"viewfinder").font(.system(size:48,weight:.ultraLight)).foregroundStyle(Color.accent);Text("Додайте першу сторінку").font(.headline);Text("Камера зберігає кожну сторінку окремо. Кількість сторінок не обмежена налаштуваннями програми.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)}.frame(maxWidth:.infinity).padding(.vertical,32)
+                        }
+                    }
+                    Section {
+                        ForEach(Array(doc.pages.enumerated()),id:\.element.id) { n,leaf in
+                            NavigationLink {PageEditor(documentID:documentID,leaf:leaf)} label:{
+                                HStack(spacing:16) {
+                                    Thumb(file:leaf.output).frame(width:74,height:100).clipShape(RoundedRectangle(cornerRadius:9))
+                                    VStack(alignment:.leading,spacing:8) {
+                                        Text("Сторінка \(n+1)").font(.headline)
+                                        if leaf.ocrReady && leaf.note.isEmpty {Label("Готова",systemImage:"checkmark.circle").font(.caption).foregroundStyle(Color.accent)}
+                                        else{Text(leaf.note).font(.caption).foregroundStyle(.secondary).lineLimit(3)}
+                                        Text("Кути · поворот · колір").font(.caption2).foregroundStyle(Color.accent)
                                     }
-                                }
+                                }.padding(.vertical,6)
                             }
                         }
-                        Button { store.export(); if !store.exports.isEmpty { share = true } } label: {
-                            Label("Експортувати PDF і TXT", systemImage: "square.and.arrow.up")
-                        }.disabled(store.busy)
+                        .onDelete { offsets in for n in offsets {store.deletePage(documentID,doc.pages[n].id)} }
+                        .onMove {store.movePages(documentID,from:$0,to:$1)}
+                    } header: {if !doc.pages.isEmpty{Text("Сторінки")}}
+                    if !doc.pages.isEmpty {
+                        Section {
+                            Button {Task{await store.analyze(documentID)}} label:{Label("Очистити, повернути та визначити ФІО",systemImage:"wand.and.stars")}.disabled(store.busy)
+                            Button {handoff=true} label:{Label("Підготувати завдання для ChatGPT",systemImage:"sparkles")}.disabled(store.busy)
+                            Button {Task{await store.export([documentID]);sharing = !store.shareURLs.isEmpty}} label:{Label("Зберегти або поділитися PDF",systemImage:"square.and.arrow.up")}.disabled(store.busy)
+                        } footer:{Text("Назва за ФІО — пропозиція з OCR. Якщо в документі кілька людей, виберіть потрібну. Перевірте краї й текст перед передачею.")}
                     }
                 }
-                Section {
-                    Button("Новий комплект", role: .destructive) { reset = true }.disabled(store.busy)
-                } footer: {
-                    Text("Перед експортом перевірте кожен розділ. Розпізнавання може помилятися. Оригінали сторінок зберігаються окремо від оброблених копій.")
+                .scrollContentBackground(.hidden).background(Color.canvas)
+                .safeAreaInset(edge:.bottom) {
+                    HStack(spacing:12) {
+                        Button{importing=true}label:{Image(systemName:"square.and.arrow.down").font(.title3).padding(17)}.buttonStyle(.bordered)
+                        Button{capturing=true}label:{Label(doc.pages.isEmpty ? "Сканувати" : "Додати сторінки",systemImage:"camera").font(.headline).frame(maxWidth:.infinity).padding(16)}.buttonStyle(.borderedProminent)
+                    }.padding(.horizontal,22).padding(.vertical,10).background(.ultraThinMaterial).disabled(store.busy)
                 }
-            }
-            .navigationTitle("AutoSplit")
-            .onChange(of: store.data.person) { _, _ in store.save() }
-            .onChange(of: store.data.caseName) { _, _ in store.save() }
-            .onChange(of: store.data.notes) { _, _ in store.save() }
-            .sheet(isPresented: $scanner) {
-                Scanner(completed: { store.add($0) }, failed: { store.error = $0 }).ignoresSafeArea()
-            }
-            .sheet(isPresented: $share) { ShareSheet(urls: store.exports) }
-            .fileImporter(isPresented: $importer, allowedContentTypes: [.pdf, .image], allowsMultipleSelection: true) { result in
-                switch result {
-                case .success(let urls): Task { await store.importFiles(urls) }
-                case .failure(let error): store.error = error.localizedDescription
-                }
-            }
-            .alert("Помилка", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
-                Button("Зрозуміло") { store.error = nil }
-            } message: { Text(store.error ?? "") }
-            .confirmationDialog("Почати новий комплект? Спочатку експортуйте поточний. Поточна розмітка буде замінена.", isPresented: $reset, titleVisibility: .visible) {
-                Button("Новий комплект", role: .destructive) { store.data = CaseData(); store.exports = []; store.save() }
-            }
-            .confirmationDialog("Побудова розділів скине їхні назви, отримувачів і підтвердження. Продовжити?", isPresented: $regroup, titleVisibility: .visible) {
-                Button("Побудувати розділи", role: .destructive) { store.regroup() }
+            } else{ContentUnavailableView("Скан недоступний",systemImage:"doc")}
+        }
+        .navigationTitle("Скан").navigationBarTitleDisplayMode(.inline).toolbar(.visible,for:.navigationBar)
+        .toolbar {
+            ToolbarItem(placement:.topBarTrailing){EditButton().disabled(store.busy)}
+            ToolbarItem(placement:.topBarTrailing){Menu{Button("Видалити скан",role:.destructive){deleting=true}}label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy)}
+        }
+        .fullScreenCover(isPresented:$capturing,onDismiss:{Task{await store.analyze(documentID)}}){CaptureView(documentID:documentID)}
+        .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true){result in
+            switch result {
+            case .success(let urls):Task{await store.importFiles(urls,to:documentID);await store.analyze(documentID)}
+            case .failure(let error):store.error=error.localizedDescription
             }
         }
+        .sheet(isPresented:$sharing){ShareSheet(urls:store.shareURLs)}
+        .sheet(isPresented:$naming){NameSheet(documentID:documentID)}
+        .sheet(isPresented:$handoff){HandoffView(ids:[documentID])}
+        .confirmationDialog("Видалити скан зі списку?",isPresented:$deleting,titleVisibility:.visible){Button("Видалити",role:.destructive){store.deleteDocument(documentID);dismiss()}}
     }
 }
-struct PagesView: View {
-    @EnvironmentObject var store: CaseStore
-    @State private var pendingBoundary: UUID?
-    var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 20) {
-                ForEach(Array(store.data.pages.enumerated()), id: \.element.id) { index, page in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Сторінка \(index + 1) · \(page.kind)").font(.headline)
-                        PageImage(page: page)
-                        if let warning = page.warning, !warning.isEmpty { Text(warning).font(.caption).foregroundStyle(.orange) }
-                        Toggle("Початок нового документа", isOn: Binding(get: { page.starts }, set: { _ in pendingBoundary = page.id }))
-                        HStack {
-                            Button { store.rotate(page.id) } label: { Image(systemName: "rotate.right") }.accessibilityLabel("Повернути")
-                            Button { store.move(page.id, offset: -1) } label: { Image(systemName: "arrow.up") }.disabled(index == 0)
-                            Button { store.move(page.id, offset: 1) } label: { Image(systemName: "arrow.down") }.disabled(index + 1 == store.data.pages.count)
-                            Spacer()
-                            Menu {
-                                Button("Відновити оригінал") { store.restore(page.id) }
-                                Button("Видалити сторінку", role: .destructive) { store.remove(page.id) }
-                            } label: { Image(systemName: "ellipsis.circle") }
-                        }.buttonStyle(.bordered)
-                        NavigationLink("Розпізнаний текст") { TextEditorView(pageID: page.id) }
-                    }.padding().background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
-                }
-            }.padding().disabled(store.busy)
-        }
-        .navigationTitle("Сторінки")
-        .confirmationDialog("Зміна межі перебудує всі розділи та скине їхні назви й підтвердження.", isPresented: Binding(get: { pendingBoundary != nil }, set: { if !$0 { pendingBoundary = nil } }), titleVisibility: .visible) {
-            Button("Змінити межу", role: .destructive) { if let id = pendingBoundary { store.toggleStart(id) }; pendingBoundary = nil }
-        }
-    }
-}
-struct PageImage: View {
-    let page: ScanPage
-    var body: some View {
-        if let image = Storage.image(page) {
-            Image(uiImage: image).resizable().scaledToFit().frame(maxWidth: .infinity).background(.white).clipShape(RoundedRectangle(cornerRadius: 8))
-        } else { Label("Зображення відсутнє", systemImage: "exclamationmark.triangle") }
-    }
-}
-struct SectionEditor: View {
-    @EnvironmentObject var store: CaseStore
-    let sectionID: UUID
-    var body: some View {
-        if let index = store.data.sections.firstIndex(where: { $0.id == sectionID }) {
+struct NameSheet:View {
+    @EnvironmentObject var store:ScannerStore
+    @Environment(\.dismiss) private var dismiss
+    let documentID:UUID
+    @State private var name=""
+    var body:some View {
+        NavigationStack {
             Form {
-                Section("Назва та отримувач") {
-                    TextField("Тип документа / назва", text: $store.data.sections[index].title)
-                    Menu("Вибрати тип документа") {
-                        ForEach(Rules.types, id: \.self) { kind in
-                            Button(kind) { store.data.sections[index].title = kind; store.data.sections[index].reviewed = false; store.save() }
-                        }
-                    }
-                    TextField("ФІО отримувача реквізитів", text: $store.data.sections[index].recipient)
-                    TextField("мати / батько / дружина / дочка_Аліна", text: $store.data.sections[index].relation)
-                }
-                Section("Усі сторінки розділу") {
-                    ForEach(store.data.sections[index].pageIDs, id: \.self) { id in
-                        if let page = store.data.pages.first(where: { $0.id == id }) {
-                            PageImage(page: page)
-                            if let warning = page.warning, !warning.isEmpty { Text(warning).font(.caption).foregroundStyle(.orange) }
-                            NavigationLink("Текст сторінки") { TextEditorView(pageID: page.id) }
-                        }
-                    }
-                }
+                Section("Назва PDF"){TextField("Прізвище Ім’я По батькові",text:$name)}
                 Section {
-                    Toggle("Межі, назву та сторінки перевірено", isOn: $store.data.sections[index].reviewed)
-                } footer: { Text("Якщо паспорт і РНОКПП на одному аркуші, ця версія ще не розділяє їх на фрагменти.") }
-            }
-            .disabled(store.busy)
-            .navigationTitle("Перевірка розділу")
-            .onDisappear { store.save() }
-            .onChange(of: store.data.sections[index].title) { _, _ in store.data.sections[index].reviewed = false; store.save() }
-            .onChange(of: store.data.sections[index].recipient) { _, _ in store.data.sections[index].reviewed = false; store.save() }
-            .onChange(of: store.data.sections[index].relation) { _, _ in store.data.sections[index].reviewed = false; store.save() }
-        } else { ContentUnavailableView("Розділ перебудовано", systemImage: "doc") }
-    }
-}
-struct TextEditorView: View {
-    @EnvironmentObject var store: CaseStore
-    let pageID: UUID
-    var body: some View {
-        if let index = store.data.pages.firstIndex(where: { $0.id == pageID }) {
-            VStack(alignment: .leading) {
-                Text("Виправлення тут впливають на TXT та IBAN. Для зміни меж скористайтесь списком сторінок.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal)
-                TextEditor(text: $store.data.pages[index].text).padding()
-            }
-            .navigationTitle("Розпізнаний текст").disabled(store.busy)
-            .onDisappear { store.save() }
-            .onChange(of: store.data.pages[index].text) { _, _ in
-                for s in store.data.sections.indices where store.data.sections[s].pageIDs.contains(pageID) { store.data.sections[s].reviewed = false }
-            }
+                    ForEach(store.document(documentID)?.candidates ?? []) { candidate in
+                        Button{name=candidate.name}label:{VStack(alignment:.leading,spacing:6){Text(candidate.name).foregroundStyle(.primary);Text(candidate.evidence).font(.caption).foregroundStyle(.secondary)}}
+                    }
+                } header:{Text("Знайдені імена")}footer:{Text("Програма не завжди розрізняє військовослужбовця, заявника й родичів. Відмінок ФІО автоматично не виправляється.")}
+            }.navigationTitle("Назва документа").navigationBarTitleDisplayMode(.inline)
+            .toolbar{ToolbarItem(placement:.cancellationAction){Button("Скасувати"){dismiss()}};ToolbarItem(placement:.confirmationAction){Button("Зберегти"){store.rename(documentID,name);dismiss()}.disabled(name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)}}
+            .onAppear{name=store.document(documentID)?.title ?? ""}
         }
     }
 }
