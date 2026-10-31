@@ -30,12 +30,17 @@ struct PageEditor:View {
                 VStack(alignment:.leading,spacing:16) {
                     Text("Вигляд сторінки").font(.headline)
                     Picker("Обробка",selection:$leaf.finish) { ForEach(Finish.allCases,id:\.self){Text($0.rawValue).tag($0)} }.pickerStyle(.segmented)
-                    Toggle("Продовжити папір за контуром",isOn:Binding(get:{leaf.edgeFill && (leaf.sourceKind=="camera" || leaf.sourceKind=="image")},set:{leaf.edgeFill=$0})).tint(.mint).disabled(leaf.sourceKind != "camera" && leaf.sourceKind != "image")
-                    Text(leaf.sourceKind=="camera" || leaf.sourceKind=="image" ? "Обробляється лише вузька смуга після підтвердженої обробки меж. Перевірте текст і печатки." : "Для готових PDF автоматичну заливку вимкнено. Сторінка зберігається цілком; за потреби доступний ручний пензель.").font(.caption).foregroundStyle(.secondary)
+                    Toggle("Автоматично очищати край",isOn:Binding(get:{leaf.edgeFill},set:{leaf.edgeFill=$0;leaf.edgeChoiceExplicit=true})).tint(.mint)
+                    HStack {
+                        Text("Нахлест")
+                        Slider(value:Binding(get:{(leaf.edgeOverlap ?? 0.04)*100},set:{leaf.edgeOverlap=$0/100}),in:1...6,step:0.5,onEditingChanged:{active in if !active {refresh()}}).tint(.mint).disabled(!leaf.edgeFill)
+                        Text(String(format:"%.1f%%",(leaf.edgeOverlap ?? 0.04)*100)).font(.caption.monospacedDigit()).frame(width:46)
+                    }
+                    Text("Очищається лише зовнішня смуга. Нахлест плавно заходить на папір; внутрішні рамки не обрізаються. Після зміни повзунка дочекайтеся оновлення.").font(.caption).foregroundStyle(.secondary)
                     if !leaf.note.isEmpty { Label(leaf.note,systemImage:"info.circle").font(.caption).foregroundStyle(.secondary) }
                 }.padding(20).background(Color.card,in:RoundedRectangle(cornerRadius:22)).padding(.horizontal)
                 Button("Залишити весь кадр без обробки") {
-                    leaf.quad = .full;leaf.manualCrop=true;leaf.cropVerified=true;leaf.turns=0;leaf.manualTurns=0;leaf.finish = .natural;leaf.edgeFill=false;leaf.cleanupStrokes=nil
+                    leaf.quad = .full;leaf.manualCrop=true;leaf.cropVerified=true;leaf.turns=0;leaf.manualTurns=0;leaf.finish = .natural;leaf.edgeFill=false;leaf.edgeChoiceExplicit=true;leaf.cleanupStrokes=nil
                     preview=Disk.image(leaf.original)
                 }.font(.subheadline).foregroundStyle(.secondary)
             }.padding(.vertical)
@@ -67,7 +72,7 @@ struct PageEditor:View {
         Task {
             do {
                 let image=try await Task.detached { try Imaging.render(item) }.value
-                if leaf.quad==item.quad && leaf.turns==item.turns && leaf.finish==item.finish && leaf.edgeFill==item.edgeFill && leaf.cleanupStrokes==item.cleanupStrokes { preview=image;showingOriginal=false }
+                if leaf.quad==item.quad && leaf.turns==item.turns && leaf.finish==item.finish && leaf.edgeFill==item.edgeFill && leaf.edgeOverlap==item.edgeOverlap && leaf.cleanupStrokes==item.cleanupStrokes { preview=image;showingOriginal=false }
             } catch { store.error=error.localizedDescription }
         }
     }

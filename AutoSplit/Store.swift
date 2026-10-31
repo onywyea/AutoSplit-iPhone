@@ -31,7 +31,7 @@ final class ScannerStore:ObservableObject {
             guard let i=index(id) else { return }
             var leaf=Leaf(original:name,output:name)
             leaf.sourceKind=sourceKind;leaf.originalPDF=pdfFile;leaf.originalPDFPage=pdfPage
-            if sourceKind=="pdf" {leaf.quad = .full;leaf.cropVerified=true;leaf.edgeFill=false}
+            if sourceKind=="pdf" {leaf.quad = .full;leaf.cropVerified=true;leaf.edgeFill=true}
             if prepare {leaf.note="Визначення меж аркуша…"}
             documents[i].pages.append(leaf);save()
             if prepare {
@@ -40,8 +40,9 @@ final class ScannerStore:ObservableObject {
                 let output=try await Task.detached {try Disk.writeImage(preview.image)}.value
                 if let d=index(id),let p=documents[d].pages.firstIndex(where:{$0.id==snapshot.id}) {
                     documents[d].pages[p].output=output;documents[d].pages[p].quad=preview.quad
-                    documents[d].pages[p].cropVerified=preview.verified
+                    documents[d].pages[p].cropVerified=preview.verified;documents[d].pages[p].edgeRepairCount=preview.edgeRepairCount;documents[d].pages[p].edgeRevision=8
                     documents[d].pages[p].note=preview.verified ? "Межі знайдено. Розпізнавання після завершення зйомки":"Межі не знайдено — вкажіть кути або перезніміть ближче"
+                    documents[d].pages[p].note += " · "+(preview.edgeRepairCount>0 ? "Край оброблено":"Край перевірено — без змін")
                     save()
                 }
             }
@@ -89,7 +90,7 @@ final class ScannerStore:ObservableObject {
                 guard let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) else { continue }
                 documents[i].pages[p].output=output; documents[i].pages[p].quad=result.quad
                 documents[i].pages[p].turns=result.turns; documents[i].pages[p].text=result.text
-                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified; documents[i].pages[p].ocrReady=true; save()
+                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified;documents[i].pages[p].edgeRepairCount=result.edgeRepairCount;documents[i].pages[p].edgeRevision=8; documents[i].pages[p].ocrReady=true; save()
             } catch {
                 if let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) { documents[i].pages[p].note=error.localizedDescription }
             }
@@ -113,9 +114,35 @@ final class ScannerStore:ObservableObject {
             documents[i].pages[p].ocrReady=false
             documents[i].pages[p].quad=nil;documents[i].pages[p].cropVerified=nil;documents[i].pages[p].manualCrop=nil
             documents[i].pages[p].cleanupStrokes=nil;documents[i].pages[p].finish = .natural
-            documents[i].pages[p].edgeFill=documents[i].pages[p].sourceKind=="camera" || documents[i].pages[p].sourceKind=="image"
+            documents[i].pages[p].edgeFill=true;documents[i].pages[p].edgeRevision=nil
         }
         error=nil;save();await analyze(id,force:true)
+    }
+    func ensureEdgeProcessing(_ id:UUID,force:Bool=false) async {
+        guard !busy,let doc=document(id) else {return}
+        let pending=doc.pages.filter {force || ($0.edgeRevision ?? 0)<8}
+        guard !pending.isEmpty else {return}
+        busy=true;stopped=false;error=nil
+        defer {busy=false;save()}
+        for (position,original) in pending.enumerated() {
+            if stopped {break}
+            var leaf=original
+            if force || leaf.edgeChoiceExplicit != true {leaf.edgeFill=true}
+            status="Обробка країв \(position+1)/\(pending.count)"
+            do {
+                let item=leaf
+                let result=try await Task.detached(priority:.utility) {try autoreleasepool {try Imaging.renderWithEdgeReport(item)}}.value
+                let output=try await Task.detached {try Disk.writeImage(result.image)}.value
+                guard let d=index(id),let p=documents[d].pages.firstIndex(where:{$0.id==leaf.id}) else {continue}
+                documents[d].pages[p].output=output;documents[d].pages[p].edgeFill=leaf.edgeFill
+                documents[d].pages[p].edgeRepairCount=result.changed;documents[d].pages[p].edgeRevision=8
+                let previous=original.note.components(separatedBy:" · ").filter {!$0.hasPrefix("Край ") && $0 != "Очистку краю вимкнено"}
+                let edgeNote=leaf.edgeFill ? (result.changed>0 ? "Край оброблено":"Край перевірено — без змін") : "Очистку краю вимкнено"
+                documents[d].pages[p].note=([edgeNote]+previous).joined(separator:" · ")
+                save()
+            } catch {error=error.localizedDescription;break}
+        }
+        status=stopped ? "Зупинено. Обробку країв можна продовжити" : "Краї перевірено"
     }
     func refreshNames(_ id:UUID) {
         guard let i=index(id) else { return }
@@ -131,8 +158,9 @@ final class ScannerStore:ObservableObject {
         guard !busy,let i=index(doc),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) else{return}
         busy=true;error=nil; status="Оновлення сторінки…"; defer{busy=false}
         do {
-            let name=try await Task.detached { try autoreleasepool { try Disk.writeImage(Imaging.render(leaf)) } }.value
-            var edited=leaf;if edited.manualCrop==true {edited.cropVerified=true}; edited.output=name; edited.text=""; edited.ocrReady=false; edited.note="Зміни збережено — оновіть розпізнавання"
+            let result=try await Task.detached {try autoreleasepool {try Imaging.renderWithEdgeReport(leaf)}}.value
+            let name=try await Task.detached {try Disk.writeImage(result.image)}.value
+            var edited=leaf;edited.edgeRepairCount=result.changed;edited.edgeRevision=8;if edited.manualCrop==true {edited.cropVerified=true}; edited.output=name; edited.text=""; edited.ocrReady=false; edited.note="Зміни збережено — оновіть розпізнавання"
             documents[i].pages[p]=edited; documents[i].candidates=[]; save()
         } catch { self.error=error.localizedDescription }
     }
@@ -161,7 +189,7 @@ final class ScannerStore:ObservableObject {
                     // A PDF import does not need to be rasterized again on export.
                     // Keep original page contents and only update the page rotation.
                     let keepPDF=doc.pages.allSatisfy {
-                        $0.originalPDF != nil && $0.originalPDFPage != nil && $0.manualCrop != true && ($0.cleanupStrokes ?? []).isEmpty && $0.finish == .natural
+                        $0.originalPDF != nil && $0.originalPDFPage != nil && $0.manualCrop != true && ($0.cleanupStrokes ?? []).isEmpty && $0.finish == .natural && ($0.edgeRepairCount ?? 0)==0
                     }
                     if keepPDF {
                         let merged=PDFDocument()
@@ -184,12 +212,13 @@ final class ScannerStore:ObservableObject {
                     do {
                         for leaf in doc.pages {
                             try autoreleasepool {
-                                guard let image=Disk.image(leaf.output),let cg=image.cgImage else{throw ScanError.message("Не знайдено зображення сторінки")}
-                                var bounds=image.size.width>image.size.height ? CGRect(x:0,y:0,width:842,height:595) : box
+                                guard let provider=CGDataProvider(url:Disk.url(leaf.output) as CFURL),let cg=CGImage(jpegDataProviderSource:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent) else{throw ScanError.message("Не знайдено JPEG сторінки")}
+                                let imageSize=CGSize(width:cg.width,height:cg.height)
+                                var bounds=imageSize.width>imageSize.height ? CGRect(x:0,y:0,width:842,height:595) : box
                                 let media=Data(bytes:&bounds,count:MemoryLayout<CGRect>.size) as CFData
                                 context.beginPDFPage([kCGPDFContextMediaBox as String:media] as CFDictionary)
-                                let factor=min(bounds.width/image.size.width,bounds.height/image.size.height)
-                                let size=CGSize(width:image.size.width*factor,height:image.size.height*factor)
+                                let factor=min(bounds.width/imageSize.width,bounds.height/imageSize.height)
+                                let size=CGSize(width:imageSize.width*factor,height:imageSize.height*factor)
                                 context.draw(cg,in:CGRect(x:(bounds.width-size.width)/2,y:(bounds.height-size.height)/2,width:size.width,height:size.height))
                                 context.endPDFPage()
                             }

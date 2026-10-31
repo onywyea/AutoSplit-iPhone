@@ -17,6 +17,10 @@ struct Leaf: Codable, Identifiable {
     var manualTurns: Int? = nil
     var finish = Finish.natural
     var edgeFill = true
+    var edgeOverlap:Double? = nil
+    var edgeChoiceExplicit:Bool? = nil
+    var edgeRepairCount:Int? = nil
+    var edgeRevision:Int? = nil
     var cleanupStrokes: [CleanupStroke]? = nil
     var text = ""
     var note = "Очікує обробки"

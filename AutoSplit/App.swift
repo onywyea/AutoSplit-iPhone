@@ -78,13 +78,7 @@ struct LibraryView:View {
 }
 struct Thumb:View {
     let file:String?
-    var body:some View {
-        ZStack {
-            Color.white
-            if let file,let image=Disk.image(file,limit:300){Image(uiImage:image).resizable().scaledToFit()}
-            else{Image(systemName:"doc.text").font(.title2).foregroundStyle(Color.accent.opacity(0.5))}
-        }
-    }
+    var body:some View {CachedScanThumbnail(file:file)}
 }
 struct DocumentView:View {
     @EnvironmentObject var store:ScannerStore
@@ -152,10 +146,14 @@ struct DocumentView:View {
                 }
             } else{ContentUnavailableView("Скан недоступний",systemImage:"doc")}
         }
+        .task(id:documentID) {Task {await store.ensureEdgeProcessing(documentID)}}
+        .onChange(of:store.busy) {_,busy in
+            if !busy && store.error==nil && !store.status.hasPrefix("Зуп") {Task {await store.ensureEdgeProcessing(documentID)}}
+        }
         .navigationTitle("Скан").navigationBarTitleDisplayMode(.inline).toolbar(.visible,for:.navigationBar)
         .toolbar {
             ToolbarItem(placement:.topBarTrailing){EditButton().disabled(store.busy)}
-            ToolbarItem(placement:.topBarTrailing){Menu{Button("Відновити з оригіналів і обробити заново"){Task{await store.rebuildSafely(documentID)}};Button("Повторити автоповорот усіх сторінок"){Task{await store.rotateAutomatically(documentID)}};Button("Видалити скан",role:.destructive){deleting=true}}label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy)}
+            ToolbarItem(placement:.topBarTrailing){Menu{Button("Обробити краї всіх сторінок"){Task{await store.ensureEdgeProcessing(documentID,force:true)}};Button("Відновити з оригіналів і обробити заново"){Task{await store.rebuildSafely(documentID)}};Button("Повторити автоповорот усіх сторінок"){Task{await store.rotateAutomatically(documentID)}};Button("Видалити скан",role:.destructive){deleting=true}}label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy)}
         }
         .fullScreenCover(isPresented:$capturing,onDismiss:{Task{await store.analyze(documentID)}}){CaptureView(documentID:documentID)}
         .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true){result in

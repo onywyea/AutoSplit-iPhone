@@ -204,7 +204,7 @@ enum PaperRaster {
     // Feather goes INTO the document, so the original paper edge is not a hard compositing seam.
     static func overlap(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8],radius:Int?=nil)->[UInt8] {
         guard w>2,h>2,rgba.count==w*h*4,mask.count==w*h else {return mask}
-        let feather=max(3,min(64,radius ?? max(8,min(w,h)/80)))
+        let feather=max(3,min(256,radius ?? max(12,min(w,h)/25)))
         let inset=max(1,feather/5)
         var alpha=mask,distance=[UInt16](repeating:UInt16.max,count:w*h),queue=[Int32]()
         for p in mask.indices where mask[p]>0 {
@@ -229,7 +229,7 @@ enum PaperRaster {
                 let sx=min(w-1,max(0,x+dx)),sy=min(h-1,max(0,y+dy)),q=(sy*w+sx)*4
                 brightest=max(brightest,Int(rgba[q])+Int(rgba[q+1])+Int(rgba[q+2]))
             }}
-            let ink=r+g+b<240 || (r+g+b<450 && brightest-r-g-b>60)
+            let ink=r+g+b<240 || brightest-r-g-b>45
             if ink || max(r,max(g,b))-min(r,min(g,b))>24 {continue}
             let t=max(0,min(1,Double(Int(distance[p])-inset)/Double(feather-inset)))
             let smooth=t*t*(3-2*t)
@@ -237,8 +237,8 @@ enum PaperRaster {
         }
         return alpha
     }
-    static func feathered(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8])->[UInt8] {
-        let alpha=overlap(rgba,width:w,height:h,mask:mask)
+    static func feathered(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8],radius:Int?=nil)->[UInt8] {
+        let alpha=overlap(rgba,width:w,height:h,mask:mask,radius:radius)
         guard alpha.count==w*h,rgba.count==w*h*4 else {return rgba}
         let support=alpha.map {UInt8($0>0 ? 255:0)}
         let fill=extend(rgba,width:w,height:h,mask:support)
@@ -409,5 +409,43 @@ enum CropSafety {
     static func usable(_ crop:Quad,content:[Quad],camera:Bool)->Bool {
         let a=area(crop)
         return crop.valid && a>=0.055 && (!camera || a<0.94) && preserves(content,inside:crop)
+    }
+}
+
+// Only border-connected warm background can trigger automatic edge repair.
+// No document segmentation mask and no internal rectangle is used here.
+enum EdgeBand {
+    static func mask(_ rgba:[UInt8],width w:Int,height h:Int,bandFraction:Double=0.04)->[UInt8] {
+        let n=w*h
+        guard w>20,h>20,rgba.count==n*4 else {return [UInt8](repeating:0,count:max(0,n))}
+        var rb=[Int](),gb=[Int]()
+        let step=max(1,min(w,h)/90)
+        for y in stride(from:h/5,to:h*4/5,by:step) {for x in stride(from:w/5,to:w*4/5,by:step) {
+            let i=(y*w+x)*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+            if max(r,max(g,b))-min(r,min(g,b))<35 && r+g+b>300 {rb.append(r-b);gb.append(g-b)}
+        }}
+        guard rb.count>25 else {return [UInt8](repeating:0,count:n)}
+        rb.sort();gb.sort();let ro=rb[rb.count/2],go=gb[gb.count/2]
+        let band=max(3,min(256,Int(Double(min(w,h))*max(0.04,min(0.08,bandFraction))))),seedDepth=max(2,min(8,min(w,h)/400))
+        var candidate=[UInt8](repeating:0,count:n),result=candidate,queue=[Int32]()
+        for y in 0..<h {
+            let ranges=y<band || y>=h-band ? [0..<w] : [0..<band,(w-band)..<w]
+            for range in ranges {for x in range {
+                let p=y*w+x,i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+                // Blue ink and saturated red ink are content, not wooden background.
+                if b-r>4 || b-g>8 || (r-g>45 && Double(r-g)>Double(max(1,g-b))*1.8) {continue}
+                if r-b-ro>9 && g-b-go>1 {
+                    candidate[p]=1
+                    if min(x,min(y,min(w-1-x,h-1-y)))<seedDepth {result[p]=255;queue.append(Int32(p))}
+                }
+            }}
+        }
+        var head=0
+        while head<queue.count {
+            let p=Int(queue[head]);head+=1;let x=p%w,y=p/w
+            func add(_ q:Int){if candidate[q]>0 && result[q]==0 {result[q]=255;queue.append(Int32(q))}}
+            if x>0 {add(p-1)};if x+1<w {add(p+1)};if y>0 {add(p-w)};if y+1<h {add(p+w)}
+        }
+        return result
     }
 }

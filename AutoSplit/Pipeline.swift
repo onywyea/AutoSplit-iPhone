@@ -2,8 +2,8 @@ import UIKit
 import Vision
 import CoreImage
 
-struct PageResult { let image: UIImage; let quad: Quad?; let turns: Int; let text: String; let note: String; let cropVerified:Bool }
-struct CapturePreview { let image:UIImage;let quad:Quad;let verified:Bool }
+struct PageResult { let image: UIImage; let quad: Quad?; let turns: Int; let text: String; let note: String; let cropVerified:Bool;let edgeRepairCount:Int }
+struct CapturePreview { let image:UIImage;let quad:Quad;let verified:Bool;let edgeRepairCount:Int }
 extension Imaging {
     static func detect(_ image:UIImage) throws -> Quad? {
         guard let cg=resized(image,limit:1600).cgImage else {return nil}
@@ -63,21 +63,20 @@ extension Imaging {
         if let q=try detect(original) {return(q,true)}
         return(.full,false)
     }
-    static func preparedImage(_ leaf:Leaf,original:UIImage,quad:Quad,verified:Bool) throws -> UIImage {
+    static func preparedImage(_ leaf:Leaf,original:UIImage,quad:Quad,verified:Bool) throws -> EdgeRepairResult {
         // Manual brush edits are explicit. Automatic repair is restricted to the
         // narrow rim AFTER a verified photo crop, never to the full PDF canvas.
         let brushed=try cleanRim(original,automatic:false,strokes:leaf.cleanupStrokes ?? [])
         let cropped=try perspective(brushed,quad:quad)
-        let photo=leaf.sourceKind=="camera" || leaf.sourceKind=="image"
-        return try cleanRim(cropped,automatic:photo && verified && leaf.edgeFill)
+        return try repairRim(cropped,automatic:leaf.edgeFill,overlap:leaf.edgeOverlap ?? 0.04)
     }
     static func prepareCapture(_ leaf:Leaf) throws -> CapturePreview {
         guard let original=Disk.image(leaf.original) else {throw ScanError.message("Оригінал відсутній")}
         let decision=try cropDecision(leaf,original:original)
         // Quick review does not run four OCR rotations. It does show the actual
         // detected crop before the thumbnail becomes available.
-        let image=try perspective(original,quad:decision.quad)
-        return CapturePreview(image:image,quad:decision.quad,verified:decision.verified)
+        let repaired=try preparedImage(leaf,original:original,quad:decision.quad,verified:decision.verified)
+        return CapturePreview(image:repaired.image,quad:decision.quad,verified:decision.verified,edgeRepairCount:repaired.changed)
     }
     static func perspective(_ image: UIImage, quad: Quad?) throws -> UIImage {
         guard let quad,quad != .full else { return image }
@@ -105,7 +104,8 @@ extension Imaging {
         guard let original=Disk.image(leaf.original) else { throw ScanError.message("Не знайдено оригінал сторінки") }
         let crop=try cropDecision(leaf,original:original)
         let quad=crop.quad
-        let cropped=try preparedImage(leaf,original:original,quad:quad,verified:crop.verified)
+        let repaired=try preparedImage(leaf,original:original,quad:quad,verified:crop.verified)
+        let cropped=repaired.image
         let axis=textAxis(cropped)
         var scores=[Double](repeating:0,count:4)
         let candidates=axis.reliable ? (axis.evidence>0 ? [0,2] : [1,3]) : [0,1,2,3]
@@ -118,16 +118,19 @@ extension Imaging {
         let image=try finish(rotate(cropped,turns:turns),mode:leaf.finish,edgeFill:false)
         let read=try recognize(image,fast:false)
         var notes:[String] = []
+        if leaf.edgeFill {notes.append(repaired.changed>0 ? "Край оброблено":"Край перевірено — без змін")}
         if !crop.verified {notes.append("Межі не знайдено — вкажіть кути або перезніміть ближче")}
         if decision.uncertain && leaf.manualTurns == nil { notes.append("Перевірте напрям тексту") }
         if read.1<0.65 { notes.append("Текст розпізнано невпевнено") }
         if !read.2 { notes.append("Системний OCR без uk-UA: перевірте ФІО") }
-        return PageResult(image:image,quad:quad,turns:turns,text:read.0,note:notes.joined(separator:" · "),cropVerified:crop.verified)
+        return PageResult(image:image,quad:quad,turns:turns,text:read.0,note:notes.joined(separator:" · "),cropVerified:crop.verified,edgeRepairCount:repaired.changed)
     }
-    static func render(_ leaf:Leaf) throws -> UIImage {
+    static func render(_ leaf:Leaf) throws -> UIImage {try renderWithEdgeReport(leaf).image}
+    static func renderWithEdgeReport(_ leaf:Leaf) throws -> EdgeRepairResult {
         guard let original=Disk.image(leaf.original) else { throw ScanError.message("Оригінал відсутній") }
         let crop=try cropDecision(leaf,original:original)
         let prepared=try preparedImage(leaf,original:original,quad:crop.quad,verified:crop.verified)
-        return try finish(rotate(prepared,turns:leaf.turns),mode:leaf.finish,edgeFill:false)
+        let image=try finish(rotate(prepared.image,turns:leaf.turns),mode:leaf.finish,edgeFill:false)
+        return EdgeRepairResult(image:image,changed:prepared.changed)
     }
 }

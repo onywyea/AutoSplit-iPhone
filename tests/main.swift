@@ -133,3 +133,24 @@ check(CropSafety.usable(.full,content:[heading,stamp],camera:false),"complete im
 check(CropSafety.contains(Point(x:0.5,y:0.5),in:distantSheet),"perspective containment accepts sheet interior")
 check(!CropSafety.contains(Point(x:0.9,y:0.5),in:distantSheet),"perspective containment rejects table outside sheet")
 print("All \(passed) document-safety checks passed")
+// Thin wooden rim must work without a Vision segmentation mask or source-kind gate.
+let thinWood=paperImage(true)
+let bandMask=EdgeBand.mask(thinWood,width:pw,height:ph)
+check(bandMask[0]==255,"outer wooden rim is detected independently of document segmentation")
+check(bandMask[ph/2*pw+pw/2]==0,"edge detector never changes document center")
+check(!EdgeBand.mask(cleanPaper,width:pw,height:ph).contains(255),"clean PDF edge needs no fill")
+var insetFrame=cleanPaper
+for y in 12..<(ph-12) {for x in 12..<(pw-12) where y==12 || y==ph-13 || x==12 || x==pw-13 {
+    let i=(y*pw+x)*4;insetFrame[i]=110;insetFrame[i+1]=70;insetFrame[i+2]=35
+}}
+check(!EdgeBand.mask(insetFrame,width:pw,height:ph).contains(255),"internal brown frame is not an outer background edge")
+var inkBorder=cleanPaper
+for y in 0..<ph {for c in 0..<3 {inkBorder[(y*pw)*4+c]=[UInt8(200),20,20][c]}}
+check(!EdgeBand.mask(inkBorder,width:pw,height:ph).contains(255),"saturated red marks are not mistaken for wood")
+// Larger alpha support is observable on the document side, not merely a changed UI number.
+let alphaLarge=PaperRaster.overlap(cleanPaper,width:pw,height:ph,mask:borderMask,radius:24)
+let alphaSmall=PaperRaster.overlap(cleanPaper,width:pw,height:ph,mask:borderMask,radius:8)
+check(alphaLarge[ph/2*pw+18]>0 && alphaSmall[ph/2*pw+18]==0,"larger overlap actually extends farther onto paper")
+let grainExtended=PaperRaster.feathered(thinWood,width:pw,height:ph,mask:bandMask,radius:12)
+check(grainExtended[0]>150 && grainExtended[2]>150,"thin wood is replaced with nearby paper")
+print("All \(passed) edge-band regressions passed")

@@ -18,15 +18,8 @@ struct PageBrowser:View {
                 if let page=selectedPage,page.sourceKind=="camera",page.cropVerified != true {
                     Button {editing=true} label:{Label("Межі не знайдено — вкажіть кути",systemImage:"crop").font(.caption.weight(.semibold)).padding(10)}.tint(.orange).disabled(store.busy)
                 }
-                TabView(selection:$selection) {
-                    ForEach(Array(pages.enumerated()),id:\.element.id) { index,page in
-                        Group {
-                            // Only neighbouring pages decode full-resolution images, even in very large scans.
-                            if abs(index-position)<=1 {ZoomPage(file:page.output)}
-                            else {Color.black}
-                        }.tag(page.id)
-                    }
-                }.tabViewStyle(.page(indexDisplayMode:.never)).frame(maxWidth:.infinity,maxHeight:.infinity).layoutPriority(1).background(.black)
+                DocumentPager(pages:pages.map {BrowserPage(id:$0.id,file:$0.output)},selection:$selection)
+                    .frame(maxWidth:.infinity,maxHeight:.infinity).layoutPriority(1)
                 if pages.count>1 {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal,showsIndicators:false) {
@@ -63,53 +56,6 @@ struct PageBrowser:View {
     private func step(_ delta:Int) {
         let next=position+delta
         guard pages.indices.contains(next) else {return}
-        withAnimation {selection=pages[next].id}
+        selection=pages[next].id
     }
-}
-private struct ZoomPage:View {
-    let file:String
-    @State private var image:UIImage?
-    var body:some View {
-        Group {if let image {ZoomImage(image:image)} else {ProgressView().tint(.white)}}
-            .task(id:file) {
-                image=nil
-                let decoded=await Task.detached(priority:.userInitiated){Disk.image(file,limit:3000)}.value
-                guard !Task.isCancelled else {return}
-                image=decoded
-            }
-            .onDisappear {image=nil}
-    }
-}
-private final class ZoomCanvas:UIScrollView,UIScrollViewDelegate {
-    let picture=UIImageView()
-    var current:UIImage?
-    override init(frame:CGRect) {
-        super.init(frame:frame)
-        delegate=self;minimumZoomScale=1;maximumZoomScale=5
-        backgroundColor = .black;showsVerticalScrollIndicator=false;showsHorizontalScrollIndicator=false
-        alwaysBounceHorizontal=false;alwaysBounceVertical=false
-        picture.contentMode = .scaleAspectFit;addSubview(picture)
-        let tap=UITapGestureRecognizer(target:self,action:#selector(doubleTap(_:)));tap.numberOfTapsRequired=2;addGestureRecognizer(tap)
-    }
-    required init?(coder:NSCoder){fatalError("init(coder:) is not supported")}
-    func display(_ image:UIImage) {
-        guard current !== image else {return}
-        current=image;setZoomScale(1,animated:false);picture.image=image;setNeedsLayout()
-    }
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        if zoomScale==1 {picture.frame=CGRect(origin:.zero,size:bounds.size);contentSize=bounds.size}
-    }
-    func viewForZooming(in scrollView:UIScrollView)->UIView? {picture}
-    @objc private func doubleTap(_ gesture:UITapGestureRecognizer) {
-        if zoomScale>1 {setZoomScale(1,animated:true);return}
-        let point=gesture.location(in:picture),factor:CGFloat=2.5
-        let rect=CGRect(x:point.x-bounds.width/factor/2,y:point.y-bounds.height/factor/2,width:bounds.width/factor,height:bounds.height/factor)
-        zoom(to:rect,animated:true)
-    }
-}
-private struct ZoomImage:UIViewRepresentable {
-    let image:UIImage
-    func makeUIView(context:Context)->ZoomCanvas {let view=ZoomCanvas(frame:.zero);view.display(image);return view}
-    func updateUIView(_ view:ZoomCanvas,context:Context){view.display(image)}
 }
