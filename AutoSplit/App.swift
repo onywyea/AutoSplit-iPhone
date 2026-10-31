@@ -67,7 +67,7 @@ struct LibraryView:View {
                     } else {
                         Button { path.append(store.newDocument()) } label: {Label("Новий скан",systemImage:"plus").font(.headline).frame(maxWidth:.infinity).padding(18)}.buttonStyle(.borderedProminent).disabled(store.busy)
                     }
-                }.padding(.horizontal,22).padding(.bottom,10).background(.ultraThinMaterial)
+                }.padding(.horizontal,22).padding(.bottom,10).background(Color.canvas.ignoresSafeArea(edges:.bottom))
             }
             .navigationDestination(for:UUID.self){id in DocumentView(documentID:id)}
             .toolbar(.hidden,for:.navigationBar)
@@ -148,7 +148,7 @@ struct DocumentView:View {
                     HStack(spacing:12) {
                         Button{importing=true}label:{Image(systemName:"square.and.arrow.down").font(.title3).padding(17)}.buttonStyle(.bordered)
                         Button{capturing=true}label:{Label(doc.pages.isEmpty ? "Сканувати" : "Додати сторінки",systemImage:"camera").font(.headline).frame(maxWidth:.infinity).padding(16)}.buttonStyle(.borderedProminent)
-                    }.padding(.horizontal,22).padding(.vertical,10).background(.ultraThinMaterial).disabled(store.busy)
+                    }.padding(.horizontal,22).padding(.vertical,10).background(Color.canvas.ignoresSafeArea(edges:.bottom)).disabled(store.busy)
                 }
             } else{ContentUnavailableView("Скан недоступний",systemImage:"doc")}
         }

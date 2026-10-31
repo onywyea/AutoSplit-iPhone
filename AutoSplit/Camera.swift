@@ -18,10 +18,14 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     private var lastSignature:[UInt8]?
     private let imageContext=CIContext()
     private var auto=true
+    private var useFlash=true
+    private var ignoreFramesUntil=Date.distantPast
     @Published var message="Наведіть камеру на аркуш"
     @Published var detected=false
     @Published var flash=false
     @Published var shooting=false
+    @Published var flashEnabled=true
+    @Published var flashSupported=false
     var captured:((UIImage)->Void)?
     func start() {
         AVCaptureDevice.requestAccess(for:.video) { [weak self] granted in
@@ -44,6 +48,8 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                         self.session.commitConfiguration(); self.configured=true
                     }
                     self.session.startRunning()
+                    let supported=self.output.supportedFlashModes.contains(.on)
+                    DispatchQueue.main.async { self.flashSupported=supported }
                 } catch {
                     if !self.configured { self.session.commitConfiguration() }
                     DispatchQueue.main.async { self.message=error.localizedDescription }
@@ -53,18 +59,37 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     }
     func stop() { queue.async { if self.session.isRunning { self.session.stopRunning() } } }
     func setAuto(_ value:Bool) { frames.async { self.auto=value; self.stable=0 } }
+    func toggleFlash() {
+        queue.async {
+            self.useFlash.toggle()
+            let enabled=self.useFlash
+            DispatchQueue.main.async { self.flashEnabled=enabled }
+        }
+    }
+    private func pauseDetectionAfterShot() {
+        frames.async {
+            self.ignoreFramesUntil=Date().addingTimeInterval(1.2)
+            self.lastSignature=nil; self.stable=0; self.armed=false
+        }
+    }
     func shoot() {
         queue.async {
             guard self.configured,self.session.isRunning,!self.capturing else { return }
             self.capturing=true
             DispatchQueue.main.async { self.shooting=true }
             let settings=AVCapturePhotoSettings()
-            settings.flashMode = .off
+            let selectedMode:AVCaptureDevice.FlashMode=self.useFlash ? .on : .off
+            settings.flashMode=self.output.supportedFlashModes.contains(selectedMode) ? selectedMode : .off
+            self.pauseDetectionAfterShot()
             self.output.capturePhoto(with:settings,delegate:self)
         }
     }
     func photoOutput(_ output:AVCapturePhotoOutput,didFinishProcessingPhoto photo:AVCapturePhoto,error:Error?) {
-        defer { queue.async { self.capturing=false }; DispatchQueue.main.async { self.shooting=false } }
+        defer {
+            pauseDetectionAfterShot()
+            queue.async { self.capturing=false }
+            DispatchQueue.main.async { self.shooting=false }
+        }
         if let error { DispatchQueue.main.async { self.message=error.localizedDescription }; return }
         guard let bytes=photo.fileDataRepresentation(),let image=UIImage(data:bytes) else { return }
         DispatchQueue.main.async { self.flash=true; self.captured?(image)
@@ -82,7 +107,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         return bytes
     }
     func captureOutput(_ output:AVCaptureOutput,didOutput sampleBuffer:CMSampleBuffer,from connection:AVCaptureConnection) {
-        guard Date().timeIntervalSince(lastTime)>0.45,let buffer=CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        guard Date()>ignoreFramesUntil,Date().timeIntervalSince(lastTime)>0.45,let buffer=CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastTime=Date()
         let request=VNDetectRectanglesRequest(); request.minimumConfidence=0.8; request.maximumObservations=1
         request.minimumSize=0.35; request.minimumAspectRatio=0.3; request.quadratureTolerance=25
@@ -154,7 +179,15 @@ struct CaptureView:View {
                 HStack(spacing:45) {
                     Toggle(isOn:$auto) { Text("Авто").font(.caption) }.toggleStyle(.button).tint(.mint)
                     Button { engine.shoot() } label: { Circle().fill(.white).frame(width:70,height:70).padding(6).overlay(Circle().stroke(.white,lineWidth:2)) }.accessibilityLabel("Зняти сторінку").disabled(store.savingPhotos>0 || engine.shooting)
-                    Text("PDF").font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.5)).frame(width:50)
+                    Button { engine.toggleFlash() } label: {
+                        VStack(spacing:6) {
+                            Image(systemName:engine.flashEnabled ? "bolt.fill" : "bolt.slash.fill").font(.title3)
+                            Text(engine.flashEnabled ? "Увімк." : "Вимк.").font(.caption2)
+                        }.frame(width:54,height:54)
+                    }
+                    .foregroundStyle(engine.flashEnabled ? Color.yellow : Color.white.opacity(0.65))
+                    .accessibilityLabel(engine.flashEnabled ? "Вимкнути спалах" : "Увімкнути спалах")
+                    .disabled(!engine.flashSupported || engine.shooting)
                 }
                 Text("Після автоматичного знімка перегорніть аркуш. Кути можна уточнити після зйомки.").font(.caption).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center).padding(.horizontal,30)
                 Spacer(minLength:0)
