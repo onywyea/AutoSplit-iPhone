@@ -1,0 +1,34 @@
+name: Build iPhone app
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check document classification rules
+        run: |
+          python3 scripts/check_package.py
+          swiftc AutoSplit/Rules.swift tests/main.swift -o rule-tests
+          ./rule-tests
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build unsigned device app
+        run: >-
+          xcodebuild -project AutoSplit.xcodeproj -scheme AutoSplit
+          -configuration Release -sdk iphoneos -destination 'generic/platform=iOS'
+          -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Package unsigned IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/AutoSplit.app Payload/
+          zip -qr AutoSplit-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AutoSplit-unsigned
+          path: AutoSplit-unsigned.ipa
+          retention-days: 7
