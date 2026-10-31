@@ -201,6 +201,54 @@ enum PaperRaster {
         }
         return result
     }
+    // Feather goes INTO the document, so the original paper edge is not a hard compositing seam.
+    static func overlap(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8],radius:Int?=nil)->[UInt8] {
+        guard w>2,h>2,rgba.count==w*h*4,mask.count==w*h else {return mask}
+        let feather=max(3,min(64,radius ?? max(8,min(w,h)/80)))
+        let inset=max(1,feather/5)
+        var alpha=mask,distance=[UInt16](repeating:UInt16.max,count:w*h),queue=[Int32]()
+        for p in mask.indices where mask[p]>0 {
+            distance[p]=0
+            let x=p%w,y=p/w
+            if (x>0 && mask[p-1]==0) || (x+1<w && mask[p+1]==0) || (y>0 && mask[p-w]==0) || (y+1<h && mask[p+w]==0) {queue.append(Int32(p))}
+        }
+        var head=0
+        while head<queue.count {
+            let p=Int(queue[head]);head+=1
+            guard Int(distance[p])<feather else {continue}
+            let x=p%w,y=p/w,next=distance[p]+1
+            func add(_ q:Int) {if distance[q]>next {distance[q]=next;queue.append(Int32(q))}}
+            if x>0 {add(p-1)};if x+1<w {add(p+1)};if y>0 {add(p-w)};if y+1<h {add(p+w)}
+        }
+        for p in mask.indices where mask[p]==0 && distance[p]<UInt16(feather) {
+            let i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+            // Keep ink, signatures and colored stamps inside the overlap intact.
+            var brightest=r+g+b
+            let x=p%w,y=p/w
+            for dy in [-4,0,4] {for dx in [-4,0,4] {
+                let sx=min(w-1,max(0,x+dx)),sy=min(h-1,max(0,y+dy)),q=(sy*w+sx)*4
+                brightest=max(brightest,Int(rgba[q])+Int(rgba[q+1])+Int(rgba[q+2]))
+            }}
+            let ink=r+g+b<240 || (r+g+b<450 && brightest-r-g-b>60)
+            if ink || max(r,max(g,b))-min(r,min(g,b))>24 {continue}
+            let t=max(0,min(1,Double(Int(distance[p])-inset)/Double(feather-inset)))
+            let smooth=t*t*(3-2*t)
+            alpha[p]=UInt8((1-smooth)*255)
+        }
+        return alpha
+    }
+    static func feathered(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8])->[UInt8] {
+        let alpha=overlap(rgba,width:w,height:h,mask:mask)
+        guard alpha.count==w*h,rgba.count==w*h*4 else {return rgba}
+        let support=alpha.map {UInt8($0>0 ? 255:0)}
+        let fill=extend(rgba,width:w,height:h,mask:support)
+        var output=rgba
+        for p in alpha.indices where alpha[p]>0 {
+            let a=Int(alpha[p])
+            for c in 0..<3 {output[p*4+c]=UInt8((Int(fill[p*4+c])*a+Int(rgba[p*4+c])*(255-a)+127)/255)}
+        }
+        return output
+    }
     static func extend(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8])->[UInt8] {
         guard w>16,h>16,rgba.count==w*h*4,mask.count==w*h,mask.contains(255) else {return rgba}
         let scale=max(1,Int(ceil(Double(max(w,h))/320)))
@@ -212,6 +260,8 @@ enum PaperRaster {
                 for x in stride(from:gx*scale,to:min(w,(gx+1)*scale),by:max(1,scale/3)) {
                     let q=y*w+x;samples+=1
                     if mask[q]>0 {bg+=1;continue}
+                    let i=q*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+                    if r+g+b<330 || max(r,max(g,b))-min(r,min(g,b))>30 {continue}
                     counts+=1;for c in 0..<3 {sums[c]+=Int(rgba[q*4+c])}
                 }
             }
@@ -266,5 +316,70 @@ enum PaperRaster {
             output[(y*w+x)*4+3]=255
         }}
         return output
+    }
+}
+
+// Line direction is inferred from connected text runs, not glyph width/height.
+// A sideways form may contain many wide Cyrillic glyphs even when the text is upright.
+enum RasterFlow {
+    static func estimate(_ gray:[UInt8],width w:Int,height h:Int)->TextAxis {
+        guard w>32,h>32,gray.count==w*h else {return TextAxis(horizontal:0,vertical:0,components:0)}
+        var histogram=[Int](repeating:0,count:256)
+        for v in gray {histogram[Int(v)]+=1}
+        var sum=0,background=255
+        for i in 0..<256 {sum+=histogram[i];if sum>=gray.count*4/5 {background=i;break}}
+        let threshold=min(185,background-45)
+        var visited=[UInt8](repeating:0,count:w*h),ink=[UInt8](repeating:0,count:w*h),queue=[Int]()
+        var glyphs=0
+        for start in gray.indices where visited[start]==0 && Int(gray[start])<threshold {
+            queue.removeAll(keepingCapacity:true);queue.append(start);visited[start]=1
+            var head=0,minX=w,minY=h,maxX=0,maxY=0
+            while head<queue.count {
+                let p=queue[head];head+=1;let x=p%w,y=p/w
+                minX=min(minX,x);maxX=max(maxX,x);minY=min(minY,y);maxY=max(maxY,y)
+                func add(_ next:Int) {if visited[next]==0 && Int(gray[next])<threshold {visited[next]=1;queue.append(next)}}
+                if x>0 {add(p-1)};if x+1<w {add(p+1)};if y>0 {add(p-w)};if y+1<h {add(p+w)}
+            }
+            let cw=maxX-minX+1,ch=maxY-minY+1,area=queue.count
+            let fill=Double(area)/Double(cw*ch)
+            // Long table rules, decorative frames and large stamps must not vote as text lines.
+            if min(cw,ch)>=2 && max(cw,ch)<=40 && area>=4 && area<=500 && fill>0.08 && fill<0.9 {
+                for p in queue {ink[p]=1};glyphs+=1
+            }
+        }
+        let horizontal=runWeight(ink,width:w,height:h,horizontal:true)
+        let vertical=runWeight(ink,width:w,height:h,horizontal:false)
+        let e=Double(horizontal-vertical)/Double(max(1,horizontal+vertical))
+        let reliable=glyphs>=40 && max(horizontal,vertical)>=1000 && abs(e)>=0.22
+        return TextAxis(horizontal:horizontal,vertical:vertical,components:reliable ? max(60,glyphs) : 0)
+    }
+    private static func runWeight(_ ink:[UInt8],width w:Int,height h:Int,horizontal:Bool)->Int {
+        let lines=horizontal ? h:w,length=horizontal ? w:h,radius=6
+        var closed=[UInt8](repeating:0,count:w*h)
+        for line in 0..<lines {
+            func index(_ position:Int)->Int {horizontal ? line*w+position : position*w+line}
+            var prefix=[Int](repeating:0,count:length+1)
+            for x in 0..<length {prefix[x+1]=prefix[x]+Int(ink[index(x)])}
+            var dilated=[Int](repeating:0,count:length+1)
+            for x in 0..<length {
+                let present=prefix[min(length,x+radius+1)]-prefix[max(0,x-radius)]>0
+                dilated[x+1]=dilated[x]+(present ? 1:0)
+            }
+            for x in radius..<(length-radius) where dilated[x+radius+1]-dilated[x-radius]==radius*2+1 {closed[index(x)]=1}
+        }
+        var queue=[Int](),weight=0
+        for start in closed.indices where closed[start]==1 {
+            closed[start]=0;queue.removeAll(keepingCapacity:true);queue.append(start)
+            var head=0,minX=w,minY=h,maxX=0,maxY=0
+            while head<queue.count {
+                let p=queue[head];head+=1;let x=p%w,y=p/w
+                minX=min(minX,x);maxX=max(maxX,x);minY=min(minY,y);maxY=max(maxY,y)
+                func add(_ next:Int) {if closed[next]==1 {closed[next]=0;queue.append(next)}}
+                if x>0 {add(p-1)};if x+1<w {add(p+1)};if y>0 {add(p-w)};if y+1<h {add(p+w)}
+            }
+            let a=horizontal ? maxX-minX+1:maxY-minY+1,b=horizontal ? maxY-minY+1:maxX-minX+1
+            if a>=30 && b>=3 && b<=26 && a>b*3 {weight+=min(a,250)*min(b,15)}
+        }
+        return weight
     }
 }

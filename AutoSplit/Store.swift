@@ -79,6 +79,15 @@ final class ScannerStore:ObservableObject {
         refreshNames(id)
         status=stopped ? "Зупинено. Можна продовжити пізніше" : "Скан готовий до перегляду"
     }
+    // Explicit action: choosing automatic rotation clears the saved manual override.
+    func rotateAutomatically(_ id:UUID,pageID:UUID?=nil) async {
+        guard !busy,let i=index(id) else {return}
+        for p in documents[i].pages.indices where pageID == nil || documents[i].pages[p].id==pageID {
+            documents[i].pages[p].manualTurns=nil;documents[i].pages[p].ocrReady=false
+        }
+        error=nil;save()
+        await analyze(id,only:pageID,force:true)
+    }
     func refreshNames(_ id:UUID) {
         guard let i=index(id) else { return }
         let text=documents[i].pages.map(\.text).joined(separator:"\n")

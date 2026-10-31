@@ -47,7 +47,7 @@ enum Imaging {
             guard let context=CGContext(data:raw.baseAddress,width:w,height:h,bitsPerComponent:8,bytesPerRow:w,space:CGColorSpaceCreateDeviceGray(),bitmapInfo:0) else{return false}
             context.draw(cg,in:CGRect(x:0,y:0,width:w,height:h));return true
         }
-        return ok ? RasterAxis.estimate(gray,width:w,height:h) : TextAxis(horizontal:0,vertical:0,components:0)
+        return ok ? RasterFlow.estimate(gray,width:w,height:h) : TextAxis(horizontal:0,vertical:0,components:0)
     }
 
 }

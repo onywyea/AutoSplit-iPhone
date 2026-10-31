@@ -29,7 +29,7 @@ struct PageEditor:View {
                     Text("Вигляд сторінки").font(.headline)
                     Picker("Обробка",selection:$leaf.finish) { ForEach(Finish.allCases,id:\.self){Text($0.rawValue).tag($0)} }.pickerStyle(.segmented)
                     Toggle("Продовжити папір за контуром",isOn:$leaf.edgeFill).tint(.mint)
-                    Text("Фон біля країв замінюється з урахуванням місцевого освітлення та фактури паперу. Перевірте контур і позначки; оригінал збережено.").font(.caption).foregroundStyle(.secondary)
+                    Text("Фактура продовжується з м’яким нахлестом на папір. Текст і кольорові позначки всередині нахлесту захищені; перевірте результат.").font(.caption).foregroundStyle(.secondary)
                     if !leaf.note.isEmpty { Label(leaf.note,systemImage:"info.circle").font(.caption).foregroundStyle(.secondary) }
                 }.padding(20).background(Color.card,in:RoundedRectangle(cornerRadius:22)).padding(.horizontal)
                 Button("Повернути оригінальний вигляд") {

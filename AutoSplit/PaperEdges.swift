@@ -73,11 +73,11 @@ extension Imaging {
                 guard x0<=x1,y0<=y1 else {continue}
                 for y in y0...y1 {for x in x0...x1 {
                     let p=y*w+x,i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
-                    if max(r,max(g,b))-min(r,min(g,b))<30 && r+g+b<330 {mask[p]=0}
+                    if max(r,max(g,b))-min(r,min(g,b))<30 && r+g+b<450 {mask[p]=0}
                 }}
             }
         }
-        let output=PaperRaster.extend(rgba,width:w,height:h,mask:mask)
+        let output=PaperRaster.feathered(rgba,width:w,height:h,mask:mask)
         guard let provider=CGDataProvider(data:Data(output) as CFData),let rendered=CGImage(width:w,height:h,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:info),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent) else {return image}
         return UIImage(cgImage:rendered)
     }

@@ -2,12 +2,14 @@ import SwiftUI
 import AVFoundation
 import Vision
 import CoreImage
+import ImageIO
 
 final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
     let session=AVCaptureSession()
     private let queue=DispatchQueue(label:"scan.camera")
     private let frames=DispatchQueue(label:"scan.edges")
     private let output=AVCapturePhotoOutput()
+    private var camera:AVCaptureDevice?
     private var configured=false
     private var capturing=false
     private var lastTime=Date.distantPast
@@ -22,10 +24,13 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     private var ignoreFramesUntil=Date.distantPast
     @Published var message="Наведіть камеру на аркуш"
     @Published var detected=false
-    @Published var flash=false
     @Published var shooting=false
     @Published var flashEnabled=true
     @Published var flashSupported=false
+    @Published var detectedQuad:Quad?
+    @Published var frameAspect:CGFloat=0.75
+    @Published var brightness=0.3
+    @Published var lastFlashFired:Bool?
     var captured:((UIImage)->Void)?
     func start() {
         AVCaptureDevice.requestAccess(for:.video) { [weak self] granted in
@@ -36,9 +41,22 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                     if !self.configured {
                         self.session.beginConfiguration(); self.session.sessionPreset = .photo
                         guard let device=AVCaptureDevice.default(.builtInWideAngleCamera,for:.video,position:.back) else { throw ScanError.message("Камера недоступна") }
+                        self.camera=device
+                        try device.lockForConfiguration()
+                        if device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
+                        if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
+                        if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {device.whiteBalanceMode = .continuousAutoWhiteBalance}
+                        device.setExposureTargetBias(min(device.maxExposureTargetBias,max(device.minExposureTargetBias,0.3)),completionHandler:nil)
+                        device.unlockForConfiguration()
                         let input=try AVCaptureDeviceInput(device:device)
                         guard self.session.canAddInput(input),self.session.canAddOutput(self.output) else { throw ScanError.message("Не вдалося налаштувати камеру") }
                         self.session.addInput(input); self.session.addOutput(self.output)
+                        self.output.maxPhotoQualityPrioritization = .quality
+                        let dimensions=device.activeFormat.supportedMaxPhotoDimensions
+                        let usable=dimensions.filter {Int64($0.width)*Int64($0.height)<=12_500_000}
+                        if let best=(usable.isEmpty ? dimensions:usable).max(by:{Int64($0.width)*Int64($0.height)<Int64($1.width)*Int64($1.height)}) {
+                            self.output.maxPhotoDimensions=best
+                        }
                         let video=AVCaptureVideoDataOutput(); video.alwaysDiscardsLateVideoFrames=true
                         video.setSampleBufferDelegate(self,queue:self.frames)
                         if self.session.canAddOutput(video) { self.session.addOutput(video) }
@@ -63,7 +81,32 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         queue.async {
             self.useFlash.toggle()
             let enabled=self.useFlash
-            DispatchQueue.main.async { self.flashEnabled=enabled }
+            DispatchQueue.main.async { self.flashEnabled=enabled;self.lastFlashFired=nil }
+        }
+    }
+    func setBrightness(_ value:Double) {
+        queue.async {
+            guard let device=self.camera else {return}
+            do {
+                try device.lockForConfiguration()
+                let bias=min(device.maxExposureTargetBias,max(device.minExposureTargetBias,Float(value)))
+                device.setExposureTargetBias(bias,completionHandler:nil);device.unlockForConfiguration()
+                DispatchQueue.main.async {self.brightness=Double(bias)}
+            } catch {DispatchQueue.main.async {self.message="Не вдалося змінити експозицію"}}
+        }
+    }
+    func focus(at point:CGPoint) {
+        queue.async {
+            guard let device=self.camera else {return}
+            do {
+                try device.lockForConfiguration()
+                if device.isFocusPointOfInterestSupported {device.focusPointOfInterest=point}
+                if device.isExposurePointOfInterestSupported {device.exposurePointOfInterest=point}
+                if device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
+                if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
+                device.unlockForConfiguration()
+                self.frames.async {self.stable=0}
+            } catch {}
         }
     }
     private func pauseDetectionAfterShot() {
@@ -78,6 +121,8 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             self.capturing=true
             DispatchQueue.main.async { self.shooting=true }
             let settings=AVCapturePhotoSettings()
+            settings.photoQualityPrioritization = .quality
+            settings.maxPhotoDimensions=self.output.maxPhotoDimensions
             let selectedMode:AVCaptureDevice.FlashMode=self.useFlash ? .on : .off
             settings.flashMode=self.output.supportedFlashModes.contains(selectedMode) ? selectedMode : .off
             self.pauseDetectionAfterShot()
@@ -92,8 +137,13 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         }
         if let error { DispatchQueue.main.async { self.message=error.localizedDescription }; return }
         guard let bytes=photo.fileDataRepresentation(),let image=UIImage(data:bytes) else { return }
-        DispatchQueue.main.async { self.flash=true; self.captured?(image)
-            DispatchQueue.main.asyncAfter(deadline:.now()+0.12) { self.flash=false }
+        var fired:Bool?=photo.resolvedSettings.isFlashEnabled ? nil:false
+        if let source=CGImageSourceCreateWithData(bytes as CFData,nil),
+           let properties=CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [CFString:Any],
+           let exif=properties[kCGImagePropertyExifDictionary] as? [CFString:Any],
+           let flag=exif[kCGImagePropertyExifFlash] as? NSNumber {fired=(flag.intValue & 1)==1}
+        let actualFlash=fired
+        DispatchQueue.main.async { self.lastFlashFired=actualFlash; self.captured?(image)
         }
     }
     private func frameSignature(_ buffer:CVPixelBuffer)->[UInt8] {
@@ -116,7 +166,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             guard let r=request.results?.first else {
                 stable=0; absent+=1
                 if absent>=2 { armed=true; lastQuad=nil }
-                DispatchQueue.main.async { self.detected=false; self.message="Аркуш має бути повністю в кадрі" }; return
+                DispatchQueue.main.async { self.detected=false;self.detectedQuad=nil; self.message="Аркуш має бути повністю в кадрі" }; return
             }
             absent=0
             func p(_ v:CGPoint)->Point { .init(x:Double(v.x),y:Double(1-v.y)) }
@@ -134,67 +184,123 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             if delta>0.12 || motion>0.06 { armed=true }
             stable=delta<0.018 && motion<0.015 ? stable+1 : 0; lastQuad=quad
             let statusMessage=auto ? (armed ? "Тримайте нерухомо…" : "Перегорніть або заберіть аркуш") : "Аркуш знайдено"
-            DispatchQueue.main.async { self.detected=true; self.message=statusMessage }
+            let aspect=CGFloat(CVPixelBufferGetWidth(buffer))/CGFloat(CVPixelBufferGetHeight(buffer))
+            let adjusting=camera?.isAdjustingFocus == true || camera?.isAdjustingExposure == true
+            if adjusting {stable=0}
+            DispatchQueue.main.async { self.detected=true;self.detectedQuad=quad;self.frameAspect=aspect;self.message=adjusting ? "Налаштування різкості…":statusMessage }
             if auto && armed && stable>=3 { armed=false; stable=0; shoot() }
         } catch { DispatchQueue.main.async { self.message="Зніміть вручну кнопкою внизу" } }
     }
 }
 final class CameraLayer: UIView {
-    override class var layerClass:AnyClass { AVCaptureVideoPreviewLayer.self }
-    var preview:AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+    weak var engine:CameraEngine?
+    override class var layerClass:AnyClass {AVCaptureVideoPreviewLayer.self}
+    var preview:AVCaptureVideoPreviewLayer {layer as! AVCaptureVideoPreviewLayer}
+    override init(frame:CGRect) {
+        super.init(frame:frame)
+        addGestureRecognizer(UITapGestureRecognizer(target:self,action:#selector(tapped(_:))))
+    }
+    required init?(coder:NSCoder){fatalError("init(coder:) is not supported")}
+    @objc private func tapped(_ gesture:UITapGestureRecognizer) {
+        engine?.focus(at:preview.captureDevicePointConverted(fromLayerPoint:gesture.location(in:self)))
+    }
     override func layoutSubviews() {
         super.layoutSubviews()
-        if let connection=preview.connection,connection.isVideoRotationAngleSupported(90) { connection.videoRotationAngle=90 }
+        if let connection=preview.connection,connection.isVideoRotationAngleSupported(90) {connection.videoRotationAngle=90}
     }
 }
 struct CameraPreview:UIViewRepresentable {
     let engine:CameraEngine
     func makeUIView(context:Context)->CameraLayer {
-        let view=CameraLayer(); view.preview.session=engine.session; view.preview.videoGravity = .resizeAspectFill; return view
+        let view=CameraLayer(frame:.zero);view.engine=engine;view.preview.session=engine.session;view.preview.videoGravity = .resizeAspectFill;return view
     }
-    func updateUIView(_ uiView:CameraLayer,context:Context) { uiView.setNeedsLayout() }
+    func updateUIView(_ view:CameraLayer,context:Context){view.setNeedsLayout()}
 }
 struct CaptureView:View {
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
     @StateObject private var engine=CameraEngine()
     @State private var auto=true
+    @State private var exposure=false
+    @State private var reviewing=false
     let documentID:UUID
-    var count:Int { store.document(documentID)?.pages.count ?? 0 }
+    var pages:[Leaf] {store.document(documentID)?.pages ?? []}
+    var count:Int {pages.count}
+    var waiting:Bool {store.savingPhotos>0 || engine.shooting}
     var body:some View {
         ZStack {
-            Color.black.ignoresSafeArea()
-            VStack(spacing:20) {
-                HStack {
-                    Button { dismiss() } label: { Image(systemName:"xmark").font(.title3).frame(width:44,height:44).background(.white.opacity(0.12),in:Circle()) }.disabled(store.savingPhotos>0 || engine.shooting)
-                    Spacer(); Text("\(count) стор.").font(.headline.monospacedDigit())
-                    Spacer(); Button(store.savingPhotos>0 ? "Зберігаю…" : "Готово") { dismiss() }.fontWeight(.semibold).disabled(store.savingPhotos>0 || engine.shooting)
-                }.padding(.horizontal)
-                ZStack {
-                    CameraPreview(engine:engine).clipShape(RoundedRectangle(cornerRadius:28))
-                    RoundedRectangle(cornerRadius:24).stroke(engine.detected ? Color.mint : .white.opacity(0.5),style:StrokeStyle(lineWidth:2,dash:[14,10])).padding(22)
-                    if engine.flash { Color.white.opacity(0.5) }
-                }.aspectRatio(3/4,contentMode:.fit).padding(.horizontal,12)
-                Text(engine.message).font(.subheadline).foregroundStyle(engine.detected ? .mint : .white.opacity(0.7)).frame(height:40)
-                HStack(spacing:45) {
-                    Toggle(isOn:$auto) { Text("Авто").font(.caption) }.toggleStyle(.button).tint(.mint)
-                    Button { engine.shoot() } label: { Circle().fill(.white).frame(width:70,height:70).padding(6).overlay(Circle().stroke(.white,lineWidth:2)) }.accessibilityLabel("Зняти сторінку").disabled(store.savingPhotos>0 || engine.shooting)
-                    Button { engine.toggleFlash() } label: {
-                        VStack(spacing:6) {
-                            Image(systemName:engine.flashEnabled ? "bolt.fill" : "bolt.slash.fill").font(.title3)
-                            Text(engine.flashEnabled ? "Увімк." : "Вимк.").font(.caption2)
-                        }.frame(width:54,height:54)
-                    }
-                    .foregroundStyle(engine.flashEnabled ? Color.yellow : Color.white.opacity(0.65))
-                    .accessibilityLabel(engine.flashEnabled ? "Вимкнути спалах" : "Увімкнути спалах")
-                    .disabled(!engine.flashSupported || engine.shooting)
+            // Full-screen camera: no inset document field, rounded frame or fixed dashed rectangle.
+            CameraPreview(engine:engine).ignoresSafeArea()
+            GeometryReader { proxy in
+                if auto,let quad=engine.detectedQuad {
+                    let view=proxy.size,aspect=engine.frameAspect
+                    let width=max(view.width,view.height*aspect),height=width/aspect
+                    let dx=(view.width-width)/2,dy=(view.height-height)/2
+                    Path {path in
+                        for (index,point) in quad.points.enumerated() {
+                            let p=CGPoint(x:dx+point.x*width,y:dy+point.y*height)
+                            if index==0 {path.move(to:p)}else{path.addLine(to:p)}
+                        }
+                        path.closeSubpath()
+                    }.stroke(.mint,lineWidth:2)
                 }
-                Text("Після автоматичного знімка перегорніть аркуш. Кути можна уточнити після зйомки.").font(.caption).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center).padding(.horizontal,30)
-                Spacer(minLength:0)
+            }.ignoresSafeArea().clipped().allowsHitTesting(false)
+            VStack {
+                LinearGradient(colors:[.black.opacity(0.7),.clear],startPoint:.top,endPoint:.bottom).frame(height:160)
+                Spacer()
+                LinearGradient(colors:[.clear,.black.opacity(0.85)],startPoint:.top,endPoint:.bottom).frame(height:260)
+            }.ignoresSafeArea().allowsHitTesting(false)
+            VStack(spacing:16) {
+                HStack(spacing:20) {
+                    Button {dismiss()} label:{Image(systemName:"xmark").frame(width:40,height:40)}.disabled(waiting)
+                    Spacer()
+                    Button {auto.toggle()} label:{Label(auto ? "Авто":"Вручну",systemImage:auto ? "viewfinder.circle.fill":"viewfinder").font(.subheadline.weight(.semibold))}
+                    Button {engine.toggleFlash()} label:{Image(systemName:engine.flashEnabled ? "bolt.fill":"bolt.slash.fill").foregroundStyle(engine.flashEnabled ? Color.yellow:.white)}.disabled(!engine.flashSupported || engine.shooting).accessibilityLabel("Спалах")
+                    Button {exposure.toggle()} label:{Image(systemName:"sun.max")}.accessibilityLabel("Яскравість фото")
+                }.font(.title3).padding(.horizontal,18)
+                if exposure {
+                    HStack {
+                        Image(systemName:"sun.min")
+                        Slider(value:Binding(get:{engine.brightness},set:{engine.setBrightness($0)}),in:-0.7...1.0).tint(.white)
+                        Image(systemName:"sun.max.fill")
+                        Text(String(format:"%+.1f",engine.brightness)).font(.caption.monospacedDigit()).frame(width:36)
+                    }.padding(14).background(.black.opacity(0.55),in:RoundedRectangle(cornerRadius:18)).padding(.horizontal,22)
+                }
+                Spacer()
+                Text(engine.message).font(.subheadline.weight(.medium)).multilineTextAlignment(.center).padding(.horizontal,16).padding(.vertical,9).background(.black.opacity(0.5),in:Capsule())
+                HStack {
+                    Button {reviewing=true} label: {
+                        ZStack(alignment:.bottomTrailing) {
+                            Thumb(file:pages.last?.output).frame(width:52,height:70).clipShape(RoundedRectangle(cornerRadius:7))
+                            Text("\(count)").font(.caption.bold().monospacedDigit()).padding(5).background(Color.accent,in:Circle()).offset(x:7,y:7)
+                        }
+                    }.frame(width:74).disabled(count==0 || waiting).accessibilityLabel("Переглянути сторінки")
+                    Spacer()
+                    Button {engine.shoot()} label:{Circle().fill(.white).frame(width:68,height:68).padding(6).overlay(Circle().stroke(.white,lineWidth:2))}.disabled(waiting).accessibilityLabel("Зняти сторінку")
+                    Spacer()
+                    Button {dismiss()} label:{Text(store.savingPhotos>0 ? "Зберігаю…":"Готово").font(.subheadline.weight(.semibold)).frame(width:74)}.disabled(waiting)
+                }.padding(.horizontal,26)
+                HStack(spacing:6) {
+                    Text("Документ").font(.caption.weight(.semibold))
+                    if engine.flashEnabled,let fired=engine.lastFlashFired {
+                        Text("·").foregroundStyle(.white.opacity(0.45))
+                        Image(systemName:fired ? "bolt.fill":"bolt.slash").foregroundStyle(fired ? Color.yellow:.orange)
+                        Text(fired ? "Спалах спрацював":"Спалах не спрацював").font(.caption2)
+                    }
+                }.padding(.bottom,12)
             }.foregroundStyle(.white)
+        }.background(.black)
+        .onAppear {engine.captured={image in Task {await store.addImage(image,to:documentID)}};engine.start()}
+        .onDisappear {engine.stop();store.save()}
+        .onChange(of:auto){_,value in engine.setAuto(value)}
+        .onChange(of:reviewing){_,value in if value {engine.stop()}}
+        .sheet(isPresented:$reviewing,onDismiss:{engine.start()}) {
+            if let first=pages.last {
+                NavigationStack {
+                    PageBrowser(documentID:documentID,initialPageID:first.id)
+                        .toolbar {ToolbarItem(placement:.topBarLeading){Button("До камери"){reviewing=false}}}
+                }
+            }
         }
-        .onAppear { engine.captured={ image in Task { await store.addImage(image,to:documentID) } }; engine.start() }
-        .onDisappear { engine.stop(); store.save() }
-        .onChange(of:auto) { _,value in engine.setAuto(value) }
     }
 }

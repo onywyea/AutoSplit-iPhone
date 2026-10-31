@@ -120,7 +120,7 @@ struct DocumentView:View {
                     }
                     Section {
                         ForEach(Array(doc.pages.enumerated()),id:\.element.id) { n,leaf in
-                            NavigationLink {PageEditor(documentID:documentID,leaf:leaf)} label:{
+                            NavigationLink {PageBrowser(documentID:documentID,initialPageID:leaf.id)} label:{
                                 HStack(spacing:16) {
                                     Thumb(file:leaf.output).frame(width:74,height:100).clipShape(RoundedRectangle(cornerRadius:9))
                                     VStack(alignment:.leading,spacing:8) {
@@ -155,7 +155,7 @@ struct DocumentView:View {
         .navigationTitle("Скан").navigationBarTitleDisplayMode(.inline).toolbar(.visible,for:.navigationBar)
         .toolbar {
             ToolbarItem(placement:.topBarTrailing){EditButton().disabled(store.busy)}
-            ToolbarItem(placement:.topBarTrailing){Menu{Button("Видалити скан",role:.destructive){deleting=true}}label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy)}
+            ToolbarItem(placement:.topBarTrailing){Menu{Button("Повторити автоповорот усіх сторінок"){Task{await store.rotateAutomatically(documentID)}};Button("Видалити скан",role:.destructive){deleting=true}}label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy)}
         }
         .fullScreenCover(isPresented:$capturing,onDismiss:{Task{await store.analyze(documentID)}}){CaptureView(documentID:documentID)}
         .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true){result in

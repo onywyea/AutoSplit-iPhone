@@ -78,3 +78,44 @@ check(PaperRaster.extend(cleanPaper,width:pw,height:ph,mask:[UInt8](repeating:0,
 check(!PaperRaster.mask(cleanPaper,width:pw,height:ph,hint:[UInt8](repeating:0,count:pw*ph)).contains(255),"invalid all-background model is rejected")
 check(PaperRaster.extend(cleanPaper,width:pw,height:ph,mask:[UInt8](repeating:255,count:pw*ph))==cleanPaper,"missing donor does not fabricate paper")
 print("All \(passed) core/rotation/paper checks passed")
+// Wide glyphs reproduce the false-axis failure: glyph shape disagrees with whole text lines.
+let fw=420,fh=320
+var wideGlyphs=[UInt8](repeating:255,count:fw*fh)
+for row in 0..<10 {for column in 0..<24 {
+    let x=18+column*15,y=20+row*27
+    for dy in 0..<6 {for dx in 0..<10 where dy==0 || dy==5 || dx==0 || dx==9 {wideGlyphs[(y+dy)*fw+x+dx]=20}}
+}}
+let flow=RasterFlow.estimate(wideGlyphs,width:fw,height:fh)
+check(flow.reliable && flow.evidence>0.8,"wide glyph text rows remain horizontal")
+check(RasterAxis.estimate(wideGlyphs,width:fw,height:fh).evidence<0,"fixture reproduces misleading individual glyph shape")
+var quarterFlow=[UInt8](repeating:255,count:fw*fh)
+for y in 0..<fh {for x in 0..<fw {quarterFlow[x*fh+fh-1-y]=wideGlyphs[y*fw+x]}}
+let rotatedFlow=RasterFlow.estimate(quarterFlow,width:fh,height:fw)
+check(rotatedFlow.reliable && rotatedFlow.evidence < -0.8,"text rows rotate with actual page direction")
+check(RasterAxis.choose(scores:[100,500,90,400],axis:flow,manual:nil).turns==0,"OCR cannot rotate horizontal wide-glyph form sideways")
+check(RasterAxis.choose(scores:[800,200,700,400],axis:rotatedFlow,manual:nil).turns==3,"sideways text line geometry overrides misleading OCR length")
+check(!RasterFlow.estimate([UInt8](repeating:255,count:fw*fh),width:fw,height:fh).reliable,"blank page has no text-line direction")
+// Same 5-page layout failure case: votes contain no text or personal data.
+let newFlowStatistics=[(55256,6882),(453,160462),(77006,4167),(109392,2095),(41736,13325)]
+for (index,votes) in newFlowStatistics.enumerated() {
+    let a=TextAxis(horizontal:votes.0,vertical:votes.1,components:100)
+    let decision=RasterAxis.choose(scores:[300,800,200,700],axis:a,manual:nil)
+    check(decision.turns%2 == (index==1 ? 1:0),"current scan page \(index+1) line axis")
+}
+// Real overlap, not just blur inside the old background mask.
+var borderMask=[UInt8](repeating:0,count:pw*ph)
+for y in 0..<ph {for x in 0..<5 {borderMask[y*pw+x]=255}}
+let alpha=PaperRaster.overlap(cleanPaper,width:pw,height:ph,mask:borderMask,radius:12)
+check(alpha[ph/2*pw+2]==255,"background fully replaced")
+check(alpha[ph/2*pw+6]==255,"solid overlap extends onto document")
+check(alpha[ph/2*pw+12]>0 && alpha[ph/2*pw+12]<255,"transition feathers inside paper")
+check(alpha[ph/2*pw+18]==0,"distant document interior unchanged")
+var markedPaper=cleanPaper
+let protectedPixel=(ph/2*pw+9)*4
+markedPaper[protectedPixel]=35;markedPaper[protectedPixel+1]=40;markedPaper[protectedPixel+2]=120
+let protectedAlpha=PaperRaster.overlap(markedPaper,width:pw,height:ph,mask:borderMask,radius:12)
+check(protectedAlpha[protectedPixel/4]==0,"blue signature protected inside overlap")
+let blend=PaperRaster.feathered(markedPaper,width:pw,height:ph,mask:borderMask)
+check((0..<4).allSatisfy {blend[protectedPixel+$0]==markedPaper[protectedPixel+$0]},"protected signature survives final compositing")
+check(PaperRaster.feathered(cleanPaper,width:pw,height:ph,mask:[UInt8](repeating:0,count:pw*ph))==cleanPaper,"empty repair leaves image byte-identical")
+print("All \(passed) core/rotation/flow/overlap checks passed")
