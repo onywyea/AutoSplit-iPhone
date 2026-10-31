@@ -77,3 +77,194 @@ struct NameCandidate: Codable, Hashable, Identifiable {
     var explicit: Bool
     var id: String { name }
 }
+
+// Geometry of small connected ink components distinguishes horizontal text
+// from sideways text without assuming that the sheet itself must be portrait.
+struct TextAxis {
+    var horizontal: Int
+    var vertical: Int
+    var components: Int
+    var evidence: Double { Double(horizontal-vertical)/Double(max(1,horizontal+vertical)) }
+    var reliable: Bool { components>=60 && abs(evidence)>=0.18 }
+}
+enum RasterAxis {
+    static func estimate(_ gray:[UInt8],width:Int,height:Int)->TextAxis {
+        guard width>0,height>0,gray.count==width*height else {return TextAxis(horizontal:0,vertical:0,components:0)}
+        var histogram=[Int](repeating:0,count:256)
+        for pixel in gray {histogram[Int(pixel)]+=1}
+        var cumulative=0,background=255
+        for i in 0..<256 {cumulative+=histogram[i];if cumulative>=gray.count*4/5{background=i;break}}
+        let threshold=min(185,background-45)
+        var visited=[UInt8](repeating:0,count:gray.count)
+        var queue:[Int]=[]
+        var horizontal=0,vertical=0,components=0
+        for start in gray.indices where visited[start]==0 && Int(gray[start])<threshold {
+            queue.removeAll(keepingCapacity:true);queue.append(start);visited[start]=1
+            var cursor=0,minX=width,minY=height,maxX=0,maxY=0
+            while cursor<queue.count {
+                let p=queue[cursor];cursor+=1
+                let x=p%width,y=p/width
+                minX=min(minX,x);maxX=max(maxX,x);minY=min(minY,y);maxY=max(maxY,y)
+                func add(_ next:Int) {
+                    if visited[next]==0 && Int(gray[next])<threshold {visited[next]=1;queue.append(next)}
+                }
+                if x>0 {add(p-1)};if x+1<width {add(p+1)}
+                if y>0 {add(p-width)};if y+1<height {add(p+width)}
+            }
+            let w=maxX-minX+1,h=maxY-minY+1,area=queue.count
+            guard min(w,h)>=3,max(w,h)<=40,area>=8,area<=500 else{continue}
+            let ratio=Double(w)/Double(h),fill=Double(area)/Double(w*h)
+            guard ratio>=0.2,ratio<=5,fill>=0.12,fill<=0.85 else{continue}
+            components+=1
+            if Double(h)>Double(w)*1.22 {horizontal+=1}
+            else if Double(w)>Double(h)*1.22 {vertical+=1}
+        }
+        return TextAxis(horizontal:horizontal,vertical:vertical,components:components)
+    }
+    static func choose(scores:[Double],axis:TextAxis,manual:Int?)->(turns:Int,uncertain:Bool) {
+        if let manual {return ((manual%4+4)%4,false)}
+        guard scores.count==4 else{return (0,true)}
+        let allowed: [Int]
+        if axis.reliable {allowed=axis.evidence>0 ? [0,2] : [1,3]}
+        else {allowed=[0,1,2,3]}
+        let ordered=allowed.sorted { scores[$0]==scores[$1] ? $0<$1 : scores[$0]>scores[$1] }
+        let best=ordered[0],second=ordered[1]
+        let uncertain=scores[best]<25 || scores[second]>scores[best]*0.88
+        if axis.reliable && axis.evidence<0 {return (best,uncertain)}
+        // Keep an already horizontal page unless upside-down OCR is clearly better.
+        if best != 0 && (uncertain || scores[best]<scores[0]*1.30+12) {return (0,true)}
+        return (best,uncertain)
+    }
+}
+
+// Deterministic raster stage. Does not infer or generate document contents.
+// rgba and hints share the same row order. A hint is a Vision foreground probability.
+enum PaperRaster {
+    static func mask(_ rgba:[UInt8],width w:Int,height h:Int,hint:[UInt8]?=nil)->[UInt8] {
+        let n=w*h
+        guard w>16,h>16,rgba.count==n*4 else { return [UInt8](repeating:0,count:max(0,n)) }
+        var rb=[Int](),gb=[Int]()
+        let step=max(1,min(w,h)/100)
+        for y in stride(from:h/5,to:h*4/5,by:step) {
+            for x in stride(from:w/5,to:w*4/5,by:step) {
+                let i=(y*w+x)*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+                if max(r,max(g,b))-min(r,min(g,b))<40 && r+g+b>210 {rb.append(r-b);gb.append(g-b)}
+            }
+        }
+        guard rb.count>30 else {return [UInt8](repeating:0,count:n)}
+        rb.sort();gb.sort();let redOffset=rb[rb.count/2],greenOffset=gb[gb.count/2]
+        var hasHint=false
+        if let hint,hint.count==n {
+            var total=0,count=0
+            for y in stride(from:h/3,to:h*2/3,by:step) {for x in stride(from:w/3,to:w*2/3,by:step){total+=Int(hint[y*w+x]);count+=1}}
+            hasHint=count>0 && total/count>180
+        }
+        var warmCount=0,borderCount=0
+        for y in stride(from:0,to:h,by:step) {for x in stride(from:0,to:w,by:step) where x<step || y<step || x>=w-step || y>=h-step {
+            let i=(y*w+x)*4
+            if Int(rgba[i])-Int(rgba[i+2])-redOffset>14 && Int(rgba[i+1])-Int(rgba[i+2])-greenOffset>2 {warmCount+=1}
+            borderCount+=1
+        }}
+        let warmScene=warmCount*20>borderCount
+        let band=max(3,Int(Double(min(w,h))*0.22))
+        var candidate=[UInt8](repeating:0,count:n)
+        for y in 0..<h {for x in 0..<w where min(x,min(y,min(w-1-x,h-1-y)))<band {
+            let p=y*w+x,i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+            // Blue/purple handwriting and stamps are never used as background.
+            if b-r>4 || b-g>8 {continue}
+            let warm=r-b-redOffset>14 && g-b-greenOffset>2
+            let shadow=warmScene && r+g+b<330
+            let outside=hasHint && (hint?[p] ?? 255)<35
+            if warm || shadow || outside {candidate[p]=1}
+        }}
+        var result=[UInt8](repeating:0,count:n),queue=[Int32]()
+        func seed(_ p:Int) {if candidate[p] != 0 && result[p]==0 {result[p]=255;queue.append(Int32(p))}}
+        for x in 0..<w {seed(x);seed((h-1)*w+x)}
+        for y in 0..<h {seed(y*w);seed(y*w+w-1)}
+        var head=0
+        while head<queue.count {
+            let p=Int(queue[head]);head+=1;let x=p%w,y=p/w
+            if x>0 {seed(p-1)};if x+1<w {seed(p+1)};if y>0 {seed(p-w)};if y+1<h {seed(p+w)}
+        }
+        // Reject a model failure that classifies too much of the page as background.
+        guard queue.count<n/3 else {return hasHint ? mask(rgba,width:w,height:h,hint:nil) : [UInt8](repeating:0,count:n)}
+        // Expand only through pixels consistent with background or its dark contact shadow.
+        for _ in 0..<3 {
+            let old=result
+            for y in 1..<(h-1) {for x in 1..<(w-1) {
+                let p=y*w+x
+                if old[p] != 0 || (old[p-1]==0 && old[p+1]==0 && old[p-w]==0 && old[p+w]==0) {continue}
+                let i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+                if b-r>4 || b-g>8 {continue}
+                if (r-b-redOffset>3 && g-b-greenOffset > -2) || r+g+b<240 {result[p]=255}
+            }}
+        }
+        return result
+    }
+    static func extend(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8])->[UInt8] {
+        guard w>16,h>16,rgba.count==w*h*4,mask.count==w*h,mask.contains(255) else {return rgba}
+        let scale=max(1,Int(ceil(Double(max(w,h))/320)))
+        let gw=(w+scale-1)/scale,gh=(h+scale-1)/scale,n=gw*gh
+        var field=[Float](repeating:0,count:n*3),missing=[Bool](repeating:false,count:n)
+        for gy in 0..<gh {for gx in 0..<gw {
+            let p=gy*gw+gx;var counts=0,bg=0,sums=[Int](repeating:0,count:3),samples=0
+            for y in stride(from:gy*scale,to:min(h,(gy+1)*scale),by:max(1,scale/3)) {
+                for x in stride(from:gx*scale,to:min(w,(gx+1)*scale),by:max(1,scale/3)) {
+                    let q=y*w+x;samples+=1
+                    if mask[q]>0 {bg+=1;continue}
+                    counts+=1;for c in 0..<3 {sums[c]+=Int(rgba[q*4+c])}
+                }
+            }
+            missing[p]=bg*5>samples || counts==0
+            if counts>0 {for c in 0..<3 {field[p*3+c]=Float(sums[c])/Float(counts)}}
+        }}
+        // Multi-source propagation initializes a local paper donor for each missing cell.
+        var donor=[Int32](repeating:-1,count:n),queue=[Int32]()
+        for p in 0..<n where !missing[p] {donor[p]=Int32(p);queue.append(Int32(p))}
+        guard !queue.isEmpty else {return rgba}
+        var head=0
+        while head<queue.count {
+            let p=Int(queue[head]);head+=1;let x=p%gw,y=p/gw
+            var neighbours=[Int]()
+            if x>0 {neighbours.append(p-1)};if x+1<gw {neighbours.append(p+1)}
+            if y>0 {neighbours.append(p-gw)};if y+1<gh {neighbours.append(p+gw)}
+            for q in neighbours where donor[q]<0 {donor[q]=donor[p];queue.append(Int32(q))}
+        }
+        let holes=(0..<n).filter {missing[$0]}
+        for p in holes {for c in 0..<3 {field[p*3+c]=field[Int(donor[p])*3+c]}}
+        // Harmonic continuation matches nearby lighting instead of one global paper color.
+        for _ in 0..<500 {
+            for p in holes {
+                let x=p%gw,y=p/gw
+                let l=x>0 ? p-1:p,r=x+1<gw ? p+1:p,t=y>0 ? p-gw:p,b=y+1<gh ? p+gw:p
+                for c in 0..<3 {field[p*3+c]=(field[l*3+c]+field[r*3+c]+field[t*3+c]+field[b*3+c])*0.25}
+            }
+        }
+        var output=rgba
+        for y in 0..<h {for x in 0..<w where mask[y*w+x]>0 {
+            let fx=max(0,min(Float(gw-1),Float(x)/Float(scale)-0.5)),fy=max(0,min(Float(gh-1),Float(y)/Float(scale)-0.5))
+            let x0=Int(fx),y0=Int(fy),x1=min(gw-1,x0+1),y1=min(gh-1,y0+1),ax=fx-Float(x0),ay=fy-Float(y0)
+            let d=Int(donor[min(gh-1,y/scale)*gw+min(gw-1,x/scale)])
+            // Deterministic local grain; no mirrored letters or repeated crease patterns.
+            let hash=(UInt32(truncatingIfNeeded:x) &* 73856093) ^ (UInt32(truncatingIfNeeded:y) &* 19349663)
+            var sx=min(w-3,max(2,(d%gw)*scale+Int(hash%23)-11))
+            var sy=min(h-3,max(2,(d/gw)*scale+Int((hash>>8)%23)-11))
+            if mask[sy*w+sx]>0 {sx=min(w-3,max(2,(d%gw)*scale));sy=min(h-3,max(2,(d/gw)*scale))}
+            for c in 0..<3 {
+                let top=field[(y0*gw+x0)*3+c]*(1-ax)+field[(y0*gw+x1)*3+c]*ax
+                let bottom=field[(y1*gw+x0)*3+c]*(1-ax)+field[(y1*gw+x1)*3+c]*ax
+                var grain:Float=0
+                let i=(sy*w+sx)*4
+                let r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+                if mask[sy*w+sx]==0 && max(r,max(g,b))-min(r,min(g,b))<25 && r+g+b>240 {
+                    var local:Float=0
+                    for dy in -2...2 {for dx in -2...2 {local+=Float(rgba[((sy+dy)*w+sx+dx)*4+c])}}
+                    grain=max(-5,min(5,Float(rgba[i+c])-local/25))
+                }
+                output[(y*w+x)*4+c]=UInt8(max(0,min(255,top*(1-ay)+bottom*ay+grain)))
+            }
+            output[(y*w+x)*4+3]=255
+        }}
+        return output
+    }
+}

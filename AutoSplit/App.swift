@@ -137,7 +137,7 @@ struct DocumentView:View {
                     } header: {if !doc.pages.isEmpty{Text("Сторінки")}}
                     if !doc.pages.isEmpty {
                         Section {
-                            Button {Task{await store.analyze(documentID)}} label:{Label("Очистити, повернути та визначити ФІО",systemImage:"wand.and.stars")}.disabled(store.busy)
+                            Button {Task{await store.analyze(documentID,force:true)}} label:{Label("Очистити, повернути та визначити ФІО",systemImage:"wand.and.stars")}.disabled(store.busy)
                             Button {handoff=true} label:{Label("Підготувати завдання для ChatGPT",systemImage:"sparkles")}.disabled(store.busy)
                             Button {Task{await store.export([documentID]);sharing = !store.shareURLs.isEmpty}} label:{Label("Зберегти або поділитися PDF",systemImage:"square.and.arrow.up")}.disabled(store.busy)
                         } footer:{Text("Назва за ФІО — пропозиція з OCR. Якщо в документі кілька людей, виберіть потрібну. Перевірте краї й текст перед передачею.")}

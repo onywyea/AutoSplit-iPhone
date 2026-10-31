@@ -58,10 +58,10 @@ final class ScannerStore:ObservableObject {
             } catch { self.error=error.localizedDescription; break }
         }
     }
-    func analyze(_ id:UUID,only pageID:UUID?=nil) async {
+    func analyze(_ id:UUID,only pageID:UUID?=nil,force:Bool=false) async {
         guard !busy,let doc=document(id) else { return }; busy=true; stopped=false
         defer { busy=false; save() }
-        let pending=doc.pages.filter { pageID == nil ? !$0.ocrReady : $0.id==pageID }
+        let pending=doc.pages.filter { pageID == nil ? (force || !$0.ocrReady) : $0.id==pageID }
         for (position,leaf) in pending.enumerated() {
             if stopped { break }
             status="Обробка \(position+1)/\(pending.count)"

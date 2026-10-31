@@ -46,68 +46,32 @@ extension Imaging {
         }
         return edgeFill ? try cleanRim(image) : image
     }
-    static func cleanRim(_ image:UIImage) throws -> UIImage {
-        guard let cg=image.cgImage else { return image }
-        let w=cg.width,h=cg.height
-        var bytes=[UInt8](repeating:0,count:w*h*4)
-        let ok=bytes.withUnsafeMutableBytes { raw -> Bool in
-            guard let ctx=CGContext(data:raw.baseAddress,width:w,height:h,bitsPerComponent:8,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
-            ctx.draw(cg,in:CGRect(x:0,y:0,width:w,height:h)); return true
-        }
-        guard ok else { return image }
-        // Protect recognized text even near page edges. Original is always kept for undo.
-        let request=VNRecognizeTextRequest(); request.recognitionLevel = .accurate
-        try VNImageRequestHandler(cgImage:cg).perform([request])
-        let protected=(request.results ?? []).map { $0.boundingBox.insetBy(dx:-0.008,dy:-0.008) }
-        var samples=[[Int]](repeating:[],count:3)
-        for fy in [0.06,0.12,0.88,0.94] {
-            for fx in stride(from:0.07,through:0.93,by:0.043) {
-                let x=min(w-1,Int(Double(w)*fx)),y=min(h-1,Int(Double(h)*fy)),i=(y*w+x)*4
-                let brightness=(Int(bytes[i])+Int(bytes[i+1])+Int(bytes[i+2]))/3
-                if brightness>160 { for c in 0..<3 { samples[c].append(Int(bytes[i+c])) } }
-            }
-        }
-        guard samples[0].count>15 else { return image }
-        let paper=samples.map { $0.sorted()[$0.count/2] }
-        let rim=min(18,max(2,Int(Double(min(w,h))*0.009)))
-        for y in 0..<h {
-            for x in 0..<w where x<rim || y<rim || x>=w-rim || y>=h-rim {
-                // CGContext memory uses lower-left coordinates, matching Vision.
-                let point=CGPoint(x:Double(x)/Double(w),y:Double(y)/Double(h))
-                if protected.contains(where:{$0.contains(point) || $0.contains(CGPoint(x:point.x,y:1-point.y))}) { continue }
-                let i=(y*w+x)*4
-                let difference=(0..<3).map { abs(Int(bytes[i+$0])-paper[$0]) }.max() ?? 0
-                if difference>45 {
-                    for c in 0..<3 { bytes[i+c]=UInt8(paper[c]) }; bytes[i+3]=255
-                }
-            }
-        }
-        guard let provider=CGDataProvider(data:Data(bytes) as CFData),let output=CGImage(width:w,height:h,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent) else { return image }
-        return UIImage(cgImage:output)
-    }
     static func process(_ leaf:Leaf) throws -> PageResult {
         guard let original=Disk.image(leaf.original) else { throw ScanError.message("Не знайдено оригінал сторінки") }
         let quad=try leaf.quad ?? detect(original)
-        let cropped=try perspective(original,quad:quad)
-        var scores:[(Int,Double)] = []
-        for turn in 0..<4 {
-            let read=try recognize(rotate(resized(cropped,limit:1400),turns:turn),fast:false)
-            scores.append((turn,Double(read.1)*Double(min(1400,read.0.filter(\.isLetter).count))))
+        let prepared=try cleanRim(original,automatic:leaf.edgeFill,strokes:leaf.cleanupStrokes ?? [])
+        let cropped=try perspective(prepared,quad:quad)
+        let axis=textAxis(cropped)
+        var scores=[Double](repeating:0,count:4)
+        let candidates=axis.reliable ? (axis.evidence>0 ? [0,2] : [1,3]) : [0,1,2,3]
+        for turn in candidates where leaf.manualTurns == nil {
+            let read=try recognize(rotate(resized(cropped,limit:2200),turns:turn),fast:false)
+            scores[turn]=Double(read.1)*Double(min(3000,read.0.filter(\.isLetter).count))
         }
-        scores.sort { $0.1 > $1.1 }
-        let ambiguous=scores[0].1<25 || scores[1].1>scores[0].1*0.92
-        let turns=leaf.turns != 0 ? leaf.turns : (ambiguous ? 0 : scores[0].0)
-        let image=try finish(rotate(cropped,turns:turns),mode:leaf.finish,edgeFill:leaf.edgeFill)
+        let decision=RasterAxis.choose(scores:scores,axis:axis,manual:leaf.manualTurns)
+        let turns=decision.turns
+        let image=try finish(rotate(cropped,turns:turns),mode:leaf.finish,edgeFill:false)
         let read=try recognize(image,fast:false)
         var notes:[String] = []
         if quad == nil { notes.append("Потрібно вказати кути аркуша") }
-        if ambiguous && leaf.turns == 0 { notes.append("Перевірте напрям тексту") }
+        if decision.uncertain && leaf.manualTurns == nil { notes.append("Перевірте напрям тексту") }
         if read.1<0.65 { notes.append("Текст розпізнано невпевнено") }
         if !read.2 { notes.append("Системний OCR без uk-UA: перевірте ФІО") }
         return PageResult(image:image,quad:quad,turns:turns,text:read.0,note:notes.joined(separator:" · "))
     }
     static func render(_ leaf:Leaf) throws -> UIImage {
         guard let original=Disk.image(leaf.original) else { throw ScanError.message("Оригінал відсутній") }
-        return try finish(rotate(perspective(original,quad:leaf.quad),turns:leaf.turns),mode:leaf.finish,edgeFill:leaf.edgeFill)
+        let prepared=try cleanRim(original,automatic:leaf.edgeFill,strokes:leaf.cleanupStrokes ?? [])
+        return try finish(rotate(perspective(prepared,quad:leaf.quad),turns:leaf.turns),mode:leaf.finish,edgeFill:false)
     }
 }

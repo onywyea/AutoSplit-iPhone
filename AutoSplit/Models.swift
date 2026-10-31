@@ -9,11 +9,17 @@ struct Leaf: Codable, Identifiable {
     var output: String
     var quad: Quad?
     var turns = 0
+    var manualTurns: Int? = nil
     var finish = Finish.natural
     var edgeFill = true
+    var cleanupStrokes: [CleanupStroke]? = nil
     var text = ""
     var note = "Очікує обробки"
     var ocrReady = false
+}
+struct CleanupStroke: Codable, Equatable {
+    var points: [Point]
+    var radius: Double
 }
 struct ScanDocument: Codable, Identifiable {
     var id = UUID()

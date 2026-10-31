@@ -39,4 +39,15 @@ enum Imaging {
         let mean = rows.isEmpty ? Float(0) : rows.map(\.confidence).reduce(0, +) / Float(rows.count)
         return (rows.map(\.string).joined(separator: "\n"), mean, supported.contains("uk-UA"))
     }
+    static func textAxis(_ image:UIImage)->TextAxis {
+        guard let cg=resized(image,limit:1000).cgImage else{return TextAxis(horizontal:0,vertical:0,components:0)}
+        let w=cg.width,h=cg.height
+        var gray=[UInt8](repeating:255,count:w*h)
+        let ok=gray.withUnsafeMutableBytes { raw -> Bool in
+            guard let context=CGContext(data:raw.baseAddress,width:w,height:h,bitsPerComponent:8,bytesPerRow:w,space:CGColorSpaceCreateDeviceGray(),bitmapInfo:0) else{return false}
+            context.draw(cg,in:CGRect(x:0,y:0,width:w,height:h));return true
+        }
+        return ok ? RasterAxis.estimate(gray,width:w,height:h) : TextAxis(horizontal:0,vertical:0,components:0)
+    }
+
 }

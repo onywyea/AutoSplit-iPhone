@@ -6,6 +6,8 @@ struct PageEditor:View {
     let documentID:UUID
     @State var leaf:Leaf
     @State private var cropping=false
+    @State private var textImage:UIImage?
+    @State private var cleaning=false
     @State private var preview:UIImage?
     @State private var showingOriginal=false
     var body:some View {
@@ -16,18 +18,22 @@ struct PageEditor:View {
                 }
                 HStack(spacing:28) {
                     tool("Кути","crop.rotate") { cropping=true }
-                    tool("Повернути","rotate.right") { leaf.turns=(leaf.turns+1)%4;refresh() }
+                    tool("Повернути","rotate.right") { leaf.turns=(leaf.turns+1)%4;leaf.manualTurns=leaf.turns;refresh() }
                     tool(showingOriginal ? "Результат" : "Оригінал","square.on.square") { showingOriginal.toggle() }
                 }
+                Button {cleaning=true} label: {Label("Прибрати фон пензлем",systemImage:"eraser").font(.subheadline.weight(.medium))}
+                Button {
+                    textImage=preview ?? Disk.image(leaf.output)
+                } label: {Label("Виділити текст · Live Text",systemImage:"text.viewfinder").font(.subheadline.weight(.medium))}
                 VStack(alignment:.leading,spacing:16) {
                     Text("Вигляд сторінки").font(.headline)
                     Picker("Обробка",selection:$leaf.finish) { ForEach(Finish.allCases,id:\.self){Text($0.rawValue).tag($0)} }.pickerStyle(.segmented)
-                    Toggle("Прибрати залишки фону по краю",isOn:$leaf.edgeFill).tint(.mint)
-                    Text("Заповнюється лише вузький край кольором паперу. Перевірте позначки біля країв; оригінал збережено.").font(.caption).foregroundStyle(.secondary)
+                    Toggle("Продовжити папір за контуром",isOn:$leaf.edgeFill).tint(.mint)
+                    Text("Фон біля країв замінюється з урахуванням місцевого освітлення та фактури паперу. Перевірте контур і позначки; оригінал збережено.").font(.caption).foregroundStyle(.secondary)
                     if !leaf.note.isEmpty { Label(leaf.note,systemImage:"info.circle").font(.caption).foregroundStyle(.secondary) }
                 }.padding(20).background(Color.card,in:RoundedRectangle(cornerRadius:22)).padding(.horizontal)
                 Button("Повернути оригінальний вигляд") {
-                    leaf.quad=nil;leaf.turns=0;leaf.finish = .natural;leaf.edgeFill=false
+                    leaf.quad=nil;leaf.turns=0;leaf.manualTurns=0;leaf.finish = .natural;leaf.edgeFill=false;leaf.cleanupStrokes=nil
                     preview=Disk.image(leaf.original)
                 }.font(.subheadline).foregroundStyle(.secondary)
             }.padding(.vertical)
@@ -40,6 +46,14 @@ struct PageEditor:View {
         .sheet(isPresented:$cropping) {
             CornerEditor(file:leaf.original,initial:leaf.quad ?? .full) { q in leaf.quad=q;refresh() }
         }
+        .sheet(isPresented:$cleaning) {
+            CleanupEditor(file:leaf.original,initial:leaf.cleanupStrokes ?? [],automatic:leaf.edgeFill) { strokes in
+                leaf.cleanupStrokes=strokes;refresh()
+            }
+        }
+        .sheet(isPresented:Binding(get:{textImage != nil},set:{if !$0 {textImage=nil}})) {
+            if let image=textImage {LiveTextSheet(image:image)}
+        }
         .overlay { if store.busy { ProgressView().padding(24).background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)) } }
     }
     func tool(_ title:String,_ icon:String,action:@escaping()->Void)->some View {
@@ -50,7 +64,7 @@ struct PageEditor:View {
         Task {
             do {
                 let image=try await Task.detached { try Imaging.render(item) }.value
-                if leaf.quad==item.quad && leaf.turns==item.turns && leaf.finish==item.finish && leaf.edgeFill==item.edgeFill { preview=image;showingOriginal=false }
+                if leaf.quad==item.quad && leaf.turns==item.turns && leaf.finish==item.finish && leaf.edgeFill==item.edgeFill && leaf.cleanupStrokes==item.cleanupStrokes { preview=image;showingOriginal=false }
             } catch { store.error=error.localizedDescription }
         }
     }
