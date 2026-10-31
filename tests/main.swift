@@ -10,7 +10,7 @@ for (i, item) in cases.enumerated() {
     }
 }
 // A generated synthetic UA account with a correct checksum, no real person's data.
-let bban = String(repeating: "0", count: 22) + "1"
+let bban = String(repeating: "0", count: 24) + "1"
 let payload = bban + "301000"
 var mod = 0
 for digit in payload { mod = (mod * 10 + digit.wholeNumberValue!) % 97 }
