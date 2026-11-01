@@ -4,10 +4,10 @@ import CoreImage
 
 struct EdgeRepairResult {let image:UIImage;let changed:Int}
 extension Imaging {
-    static func cleanRim(_ image:UIImage,automatic:Bool=true,strokes:[CleanupStroke]=[],overlap:Double=0.04) throws -> UIImage {
-        try repairRim(image,automatic:automatic,strokes:strokes,overlap:overlap).image
+    static func cleanRim(_ image:UIImage,automatic:Bool=true,strokes:[CleanupStroke]=[],overlap:Double=0.06,reach:Double=0.08) throws -> UIImage {
+        try repairRim(image,automatic:automatic,strokes:strokes,overlap:overlap,reach:reach).image
     }
-    static func repairRim(_ image:UIImage,automatic:Bool=true,strokes:[CleanupStroke]=[],overlap:Double=0.04) throws -> EdgeRepairResult {
+    static func repairRim(_ image:UIImage,automatic:Bool=true,strokes:[CleanupStroke]=[],overlap:Double=0.06,reach:Double=0.08) throws -> EdgeRepairResult {
         guard automatic || !strokes.isEmpty,let cg=image.cgImage else {return EdgeRepairResult(image:image,changed:0)}
         let w=cg.width,h=cg.height
         var rgba=[UInt8](repeating:0,count:w*h*4)
@@ -17,7 +17,7 @@ extension Imaging {
             context.draw(cg,in:CGRect(x:0,y:0,width:w,height:h));return true
         }
         guard ok else {return EdgeRepairResult(image:image,changed:0)}
-        var mask=automatic ? EdgeBand.mask(rgba,width:w,height:h,bandFraction:overlap) : [UInt8](repeating:0,count:w*h)
+        var mask=automatic ? EdgeBand.mask(rgba,width:w,height:h,bandFraction:reach) : [UInt8](repeating:0,count:w*h)
         if !strokes.isEmpty {
             let format=UIGraphicsImageRendererFormat();format.scale=1;format.opaque=true
             let painted=UIGraphicsImageRenderer(size:CGSize(width:w,height:h),format:format).image { renderer in
@@ -49,7 +49,7 @@ extension Imaging {
         }
         let changed=mask.reduce(0){$0+($1>0 ? 1:0)}
         guard changed>0 else {return EdgeRepairResult(image:image,changed:0)}
-        let radius=Int(Double(min(w,h))*max(0.01,min(0.06,overlap)))
+        let radius=Int(Double(min(w,h))*max(0.01,min(0.12,overlap)))
         let output=PaperRaster.feathered(rgba,width:w,height:h,mask:mask,radius:radius)
         guard let provider=CGDataProvider(data:Data(output) as CFData),let rendered=CGImage(width:w,height:h,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:info),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent) else {return EdgeRepairResult(image:image,changed:0)}
         return EdgeRepairResult(image:UIImage(cgImage:rendered),changed:changed)

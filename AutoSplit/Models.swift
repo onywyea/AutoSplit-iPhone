@@ -18,6 +18,7 @@ struct Leaf: Codable, Identifiable {
     var finish = Finish.natural
     var edgeFill = true
     var edgeOverlap:Double? = nil
+    var edgeReach:Double? = nil
     var edgeChoiceExplicit:Bool? = nil
     var edgeRepairCount:Int? = nil
     var edgeRevision:Int? = nil

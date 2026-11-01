@@ -68,7 +68,7 @@ extension Imaging {
         // narrow rim AFTER a verified photo crop, never to the full PDF canvas.
         let brushed=try cleanRim(original,automatic:false,strokes:leaf.cleanupStrokes ?? [])
         let cropped=try perspective(brushed,quad:quad)
-        return try repairRim(cropped,automatic:leaf.edgeFill,overlap:leaf.edgeOverlap ?? 0.04)
+        return try repairRim(cropped,automatic:leaf.edgeFill,overlap:leaf.edgeOverlap ?? 0.06,reach:leaf.edgeReach ?? 0.08)
     }
     static func prepareCapture(_ leaf:Leaf) throws -> CapturePreview {
         guard let original=Disk.image(leaf.original) else {throw ScanError.message("Оригінал відсутній")}
@@ -122,7 +122,7 @@ extension Imaging {
         if !crop.verified {notes.append("Межі не знайдено — вкажіть кути або перезніміть ближче")}
         if decision.uncertain && leaf.manualTurns == nil { notes.append("Перевірте напрям тексту") }
         if read.1<0.65 { notes.append("Текст розпізнано невпевнено") }
-        if !read.2 { notes.append("Системний OCR без uk-UA: перевірте ФІО") }
+        if !read.2 { notes.append("Системний OCR без uk-UA: перевірте ПІБ") }
         return PageResult(image:image,quad:quad,turns:turns,text:read.0,note:notes.joined(separator:" · "),cropVerified:crop.verified,edgeRepairCount:repaired.changed)
     }
     static func render(_ leaf:Leaf) throws -> UIImage {try renderWithEdgeReport(leaf).image}

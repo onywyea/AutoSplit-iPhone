@@ -143,12 +143,12 @@ enum PaperRaster {
     static func mask(_ rgba:[UInt8],width w:Int,height h:Int,hint:[UInt8]?=nil)->[UInt8] {
         let n=w*h
         guard w>16,h>16,rgba.count==n*4 else { return [UInt8](repeating:0,count:max(0,n)) }
-        var rb=[Int](),gb=[Int]()
+        var rb=[Int](),gb=[Int](),brightness=[Int]()
         let step=max(1,min(w,h)/100)
         for y in stride(from:h/5,to:h*4/5,by:step) {
             for x in stride(from:w/5,to:w*4/5,by:step) {
                 let i=(y*w+x)*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
-                if max(r,max(g,b))-min(r,min(g,b))<40 && r+g+b>210 {rb.append(r-b);gb.append(g-b)}
+                if max(r,max(g,b))-min(r,min(g,b))<40 && r+g+b>210 {rb.append(r-b);gb.append(g-b);brightness.append((r+g+b)/3)}
             }
         }
         guard rb.count>30 else {return [UInt8](repeating:0,count:n)}
@@ -205,7 +205,7 @@ enum PaperRaster {
     static func overlap(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8],radius:Int?=nil)->[UInt8] {
         guard w>2,h>2,rgba.count==w*h*4,mask.count==w*h else {return mask}
         let feather=max(3,min(256,radius ?? max(12,min(w,h)/25)))
-        let inset=max(1,feather/5)
+        let inset=max(1,feather/3)
         var alpha=mask,distance=[UInt16](repeating:UInt16.max,count:w*h),queue=[Int32]()
         for p in mask.indices where mask[p]>0 {
             distance[p]=0
@@ -294,24 +294,11 @@ enum PaperRaster {
         for y in 0..<h {for x in 0..<w where mask[y*w+x]>0 {
             let fx=max(0,min(Float(gw-1),Float(x)/Float(scale)-0.5)),fy=max(0,min(Float(gh-1),Float(y)/Float(scale)-0.5))
             let x0=Int(fx),y0=Int(fy),x1=min(gw-1,x0+1),y1=min(gh-1,y0+1),ax=fx-Float(x0),ay=fy-Float(y0)
-            let d=Int(donor[min(gh-1,y/scale)*gw+min(gw-1,x/scale)])
-            // Deterministic local grain; no mirrored letters or repeated crease patterns.
-            let hash=(UInt32(truncatingIfNeeded:x) &* 73856093) ^ (UInt32(truncatingIfNeeded:y) &* 19349663)
-            var sx=min(w-3,max(2,(d%gw)*scale+Int(hash%23)-11))
-            var sy=min(h-3,max(2,(d/gw)*scale+Int((hash>>8)%23)-11))
-            if mask[sy*w+sx]>0 {sx=min(w-3,max(2,(d%gw)*scale));sy=min(h-3,max(2,(d/gw)*scale))}
             for c in 0..<3 {
                 let top=field[(y0*gw+x0)*3+c]*(1-ax)+field[(y0*gw+x1)*3+c]*ax
                 let bottom=field[(y1*gw+x0)*3+c]*(1-ax)+field[(y1*gw+x1)*3+c]*ax
-                var grain:Float=0
-                let i=(sy*w+sx)*4
-                let r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
-                if mask[sy*w+sx]==0 && max(r,max(g,b))-min(r,min(g,b))<25 && r+g+b>240 {
-                    var local:Float=0
-                    for dy in -2...2 {for dx in -2...2 {local+=Float(rgba[((sy+dy)*w+sx+dx)*4+c])}}
-                    grain=max(-5,min(5,Float(rgba[i+c])-local/25))
-                }
-                output[(y*w+x)*4+c]=UInt8(max(0,min(255,top*(1-ay)+bottom*ay+grain)))
+                // Continue the local illumination, without synthetic noise or copied ink.
+                output[(y*w+x)*4+c]=UInt8(max(0,min(255,top*(1-ay)+bottom*ay)))
             }
             output[(y*w+x)*4+3]=255
         }}
@@ -415,18 +402,18 @@ enum CropSafety {
 // Only border-connected warm background can trigger automatic edge repair.
 // No document segmentation mask and no internal rectangle is used here.
 enum EdgeBand {
-    static func mask(_ rgba:[UInt8],width w:Int,height h:Int,bandFraction:Double=0.04)->[UInt8] {
+    static func mask(_ rgba:[UInt8],width w:Int,height h:Int,bandFraction:Double=0.06)->[UInt8] {
         let n=w*h
         guard w>20,h>20,rgba.count==n*4 else {return [UInt8](repeating:0,count:max(0,n))}
-        var rb=[Int](),gb=[Int]()
+        var rb=[Int](),gb=[Int](),brightness=[Int]()
         let step=max(1,min(w,h)/90)
         for y in stride(from:h/5,to:h*4/5,by:step) {for x in stride(from:w/5,to:w*4/5,by:step) {
             let i=(y*w+x)*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
-            if max(r,max(g,b))-min(r,min(g,b))<35 && r+g+b>300 {rb.append(r-b);gb.append(g-b)}
+            if max(r,max(g,b))-min(r,min(g,b))<35 && r+g+b>300 {rb.append(r-b);gb.append(g-b);brightness.append((r+g+b)/3)}
         }}
         guard rb.count>25 else {return [UInt8](repeating:0,count:n)}
-        rb.sort();gb.sort();let ro=rb[rb.count/2],go=gb[gb.count/2]
-        let band=max(3,min(256,Int(Double(min(w,h))*max(0.04,min(0.08,bandFraction))))),seedDepth=max(2,min(8,min(w,h)/400))
+        rb.sort();gb.sort();brightness.sort();let ro=rb[rb.count/2],go=gb[gb.count/2],paper=brightness[brightness.count*3/4]
+        let band=max(3,min(256,Int(Double(min(w,h))*max(0.06,min(0.12,bandFraction))))),seedDepth=max(2,min(8,min(w,h)/400))
         var candidate=[UInt8](repeating:0,count:n),result=candidate,queue=[Int32]()
         for y in 0..<h {
             let ranges=y<band || y>=h-band ? [0..<w] : [0..<band,(w-band)..<w]
@@ -434,9 +421,23 @@ enum EdgeBand {
                 let p=y*w+x,i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
                 // Blue ink and saturated red ink are content, not wooden background.
                 if b-r>4 || b-g>8 || (r-g>45 && Double(r-g)>Double(max(1,g-b))*1.8) {continue}
-                if r-b-ro>9 && g-b-go>1 {
+                let warm=r-b-ro>9 && g-b-go>1
+                let neutral=max(r,max(g,b))-min(r,min(g,b))<25
+                let grayFloor=neutral && (r+g+b)/3>65 && paper-(r+g+b)/3>35
+                if warm || grayFloor {
                     candidate[p]=1
-                    if min(x,min(y,min(w-1-x,h-1-y)))<seedDepth {result[p]=255;queue.append(Int32(p))}
+                    if min(x,min(y,min(w-1-x,h-1-y)))<seedDepth {
+                        if warm {result[p]=255;queue.append(Int32(p))}
+                        else {
+                            // A 3x3 neighborhood distinguishes a floor patch from a fine table rule.
+                            var dark=0
+                            for dy in -1...1 {for dx in -1...1 {
+                                let q=(min(h-1,max(0,y+dy))*w+min(w-1,max(0,x+dx)))*4
+                                if paper-(Int(rgba[q])+Int(rgba[q+1])+Int(rgba[q+2]))/3>35 {dark+=1}
+                            }}
+                            if dark>=8 {result[p]=255;queue.append(Int32(p))}
+                        }
+                    }
                 }
             }}
         }
@@ -446,6 +447,36 @@ enum EdgeBand {
             func add(_ q:Int){if candidate[q]>0 && result[q]==0 {result[q]=255;queue.append(Int32(q))}}
             if x>0 {add(p-1)};if x+1<w {add(p+1)};if y>0 {add(p-w)};if y+1<h {add(p+w)}
         }
+        // Cover the OUTSIDE up to the detected contour as well as the inside feather.
+        // Wood grain can contain pale gaps: do not leave those gaps as isolated islands.
+        func cover(_ p:Int) {
+            let i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+            if b-r>4 || b-g>8 || (r-g>45 && Double(r-g)>Double(max(1,g-b))*1.8) {return}
+            result[p]=255
+        }
+        for y in 0..<h {
+            if let last=(0..<band).last(where:{result[y*w+$0]>0}) {for x in 0...last {cover(y*w+x)}}
+            if let first=((w-band)..<w).first(where:{result[y*w+$0]>0}) {for x in first..<w {cover(y*w+x)}}
+        }
+        for x in 0..<w {
+            if let last=(0..<band).last(where:{result[$0*w+x]>0}) {for y in 0...last {cover(y*w+x)}}
+            if let first=((h-band)..<h).first(where:{result[$0*w+x]>0}) {for y in first..<h {cover(y*w+x)}}
+        }
         return result
+    }
+}
+
+// Export settings never alter the stored scan or its original image.
+enum PDFCompression:String,CaseIterable,Identifiable {
+    case original="Максимальна якість",balanced="Збалансовано",small="Малий файл"
+    var id:String {rawValue}
+    var pixelLimit:Int {switch self {case .original:return 3000;case .balanced:return 2200;case .small:return 1500}}
+    var jpegQuality:Double {switch self {case .original:return 0.94;case .balanced:return 0.78;case .small:return 0.6}}
+    var detail:String {
+        switch self {
+        case .original:return "Без додаткового стиснення фото. Незмінені PDF зберігають текстовий шар."
+        case .balanced:return "До 2200 px · для звичайних документів і пересилання."
+        case .small:return "До 1500 px · менший розмір, дрібний текст може втратити чіткість."
+        }
     }
 }

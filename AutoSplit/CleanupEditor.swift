@@ -10,6 +10,7 @@ struct CleanupEditor:View {
     @State private var current:[Point]=[]
     @State private var radius=0.025
     @State private var preview:UIImage?
+    @State private var originalImage:UIImage?
     @State private var working=false
     @State private var error:String?
     init(file:String,initial:[CleanupStroke],automatic:Bool,reference:Leaf?=nil,done:@escaping([CleanupStroke])->Void) {
@@ -20,7 +21,7 @@ struct CleanupEditor:View {
             VStack(spacing:14) {
                 Text(preview == nil ? "Зафарбуйте залишки фону. Не торкайтеся тексту та печаток." : "Перевірте результат. Зміни застосуються після натискання «Зберегти».")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal)
-                if let original=Disk.image(file) {
+                if let original=originalImage {
                     GeometryReader { proxy in
                         let factor=min(proxy.size.width/original.size.width,proxy.size.height/original.size.height)
                         let size=CGSize(width:original.size.width*factor,height:original.size.height*factor)
@@ -56,7 +57,8 @@ struct CleanupEditor:View {
                     }.disabled(working)
                 }.font(.subheadline).padding(.bottom,20)
                 if let error {Text(error).font(.caption).foregroundStyle(.red)}
-            }.background(Color.canvas).navigationTitle("Очистка краю").navigationBarTitleDisplayMode(.inline)
+            }.background(Color.canvas).task(id:file){originalImage=await ScanImageLoader.shared.image(file,limit:2400)}
+            .navigationTitle("Очистка краю").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement:.cancellationAction){Button("Закрити"){dismiss()}.disabled(working)}
                 ToolbarItem(placement:.confirmationAction){Button("Зберегти"){done(strokes);dismiss()}.disabled(working)}

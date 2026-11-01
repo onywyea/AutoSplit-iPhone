@@ -1,0 +1,3 @@
+Generated with built-in ImageGen, logo-brand use case.
+Production iPhone document scanner app icon. Full bleed opaque square. Deep ink teal background; ivory-white sheet with folded top-right corner, three teal text lines, four mint scanning corner brackets and a thin mint scanning line. Minimal precise geometry, balanced spacing, restrained dimension, legible at small size. No text, no badge, no watermark, no pre-rounded outer mask.
+Asset: AutoSplit/Assets.xcassets/AppIcon.appiconset/AppIcon.png

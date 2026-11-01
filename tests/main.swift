@@ -154,3 +154,22 @@ check(alphaLarge[ph/2*pw+18]>0 && alphaSmall[ph/2*pw+18]==0,"larger overlap actu
 let grainExtended=PaperRaster.feathered(thinWood,width:pw,height:ph,mask:bandMask,radius:12)
 check(grainExtended[0]>150 && grainExtended[2]>150,"thin wood is replaced with nearby paper")
 print("All \(passed) edge-band regressions passed")
+// v0.2.7: neutral backgrounds and thin ink need different treatment.
+var grayFloor=cleanPaper
+for y in 0..<ph {for x in 0..<5 {for c in 0..<3 {grayFloor[(y*pw+x)*4+c]=125}}}
+let grayMask=EdgeBand.mask(grayFloor,width:pw,height:ph)
+check(grayMask[ph/2*pw+2]==255,"gray floor at outer edge is detected")
+check(grayMask[ph/2*pw+pw/2]==0,"gray floor repair does not reach document center")
+var grayRule=cleanPaper
+for y in 0..<ph {for c in 0..<3 {grayRule[(y*pw)*4+c]=125}}
+check(!EdgeBand.mask(grayRule,width:pw,height:ph).contains(255),"one-pixel neutral table rule is retained")
+let safeBand=EdgeBand.mask(blueEdge,width:pw,height:ph)
+check((0..<ph).allSatisfy{safeBand[$0*pw+2]==0},"outside envelope preserves blue ink at the boundary")
+var paleWoodGap=woodPaper
+for y in 0..<ph {for c in 0..<3 {paleWoodGap[(y*pw+1)*4+c]=195}}
+let closedBand=EdgeBand.mask(paleWoodGap,width:pw,height:ph)
+check(closedBand[ph/2*pw+1]==255,"pale gaps outside detected contour are fully covered")
+check(PDFCompression.balanced.pixelLimit>PDFCompression.small.pixelLimit,"balanced export retains more pixels than small")
+check(PDFCompression.original.jpegQuality>PDFCompression.balanced.jpegQuality && PDFCompression.balanced.jpegQuality>PDFCompression.small.jpegQuality,"compression quality decreases in documented order")
+check(PDFCompression.allCases.allSatisfy{$0.jpegQuality>0 && $0.jpegQuality<=1 && $0.pixelLimit>=1500},"PDF profiles have valid encoding values")
+print("All \(passed) core/rotation/edge/export checks passed")
