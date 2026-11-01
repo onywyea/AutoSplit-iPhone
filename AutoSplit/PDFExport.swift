@@ -49,6 +49,7 @@ struct PDFExportSheet:View {
                                 Image(systemName:compression==option ? "checkmark.circle.fill":"circle").foregroundStyle(Color.accent)
                             }.padding(.vertical,4)
                         }.disabled(store.busy)
+                    }
                 } header:{Text("Розмір PDF")} footer:{Text("Стиснення створює окремий PDF. Оригінали залишаються без змін. У стисненому PDF сторінки зберігаються як зображення.")}
                 if !store.shareURLs.isEmpty {
                     Section("Готовий файл") {
