@@ -37,7 +37,7 @@ struct PDFExportSheet:View {
                 Section {
                     Label("\(ids.count) документів · \(count) стор.",systemImage:"doc.on.doc")
                 }
-                Section("Розмір PDF") {
+                Section {
                     ForEach(PDFCompression.allCases) { option in
                         Button {compression=option;store.shareURLs=[]} label:{
                             HStack(alignment:.top,spacing:12) {
@@ -49,8 +49,7 @@ struct PDFExportSheet:View {
                                 Image(systemName:compression==option ? "checkmark.circle.fill":"circle").foregroundStyle(Color.accent)
                             }.padding(.vertical,4)
                         }.disabled(store.busy)
-                    }
-                } footer:{Text("Стиснення створює окремий PDF. Оригінали залишаються без змін. У стисненому PDF сторінки зберігаються як зображення.")}
+                } header:{Text("Розмір PDF")} footer:{Text("Стиснення створює окремий PDF. Оригінали залишаються без змін. У стисненому PDF сторінки зберігаються як зображення.")}
                 if !store.shareURLs.isEmpty {
                     Section("Готовий файл") {
                         Label(store.exportSummary,systemImage:"checkmark.circle.fill").foregroundStyle(Color.accent)
