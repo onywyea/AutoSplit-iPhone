@@ -399,10 +399,15 @@ enum CropSafety {
     }
 }
 
-// Only border-connected warm background can trigger automatic edge repair.
+// Outer background detection with an explicit pixel margin around its contour.
 // No document segmentation mask and no internal rectangle is used here.
 enum EdgeBand {
-    static func mask(_ rgba:[UInt8],width w:Int,height h:Int,bandFraction:Double=0.06)->[UInt8] {
+    static func protectedInk(_ r:Int,_ g:Int,_ b:Int)->Bool {
+        // Red ink has little green-yellow component. Brown wood contains both.
+        let red=r-g>45 && g-b<max(12,(r-g)/5)
+        return b-r>4 || b-g>8 || red
+    }
+    static func mask(_ rgba:[UInt8],width w:Int,height h:Int,bandFraction:Double=0.12,margin:Int=8)->[UInt8] {
         let n=w*h
         guard w>20,h>20,rgba.count==n*4 else {return [UInt8](repeating:0,count:max(0,n))}
         var rb=[Int](),gb=[Int](),brightness=[Int]()
@@ -420,7 +425,7 @@ enum EdgeBand {
             for range in ranges {for x in range {
                 let p=y*w+x,i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
                 // Blue ink and saturated red ink are content, not wooden background.
-                if b-r>4 || b-g>8 || (r-g>45 && Double(r-g)>Double(max(1,g-b))*1.8) {continue}
+                if protectedInk(r,g,b) {continue}
                 let warm=r-b-ro>9 && g-b-go>1
                 let neutral=max(r,max(g,b))-min(r,min(g,b))<25
                 let grayFloor=neutral && (r+g+b)/3>65 && paper-(r+g+b)/3>35
@@ -451,7 +456,7 @@ enum EdgeBand {
         // Wood grain can contain pale gaps: do not leave those gaps as isolated islands.
         func cover(_ p:Int) {
             let i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
-            if b-r>4 || b-g>8 || (r-g>45 && Double(r-g)>Double(max(1,g-b))*1.8) {return}
+            if protectedInk(r,g,b) {return}
             result[p]=255
         }
         for y in 0..<h {
@@ -461,6 +466,43 @@ enum EdgeBand {
         for x in 0..<w {
             if let last=(0..<band).last(where:{result[$0*w+x]>0}) {for y in 0...last {cover(y*w+x)}}
             if let first=((h-band)..<h).first(where:{result[$0*w+x]>0}) {for y in first..<h {cover(y*w+x)}}
+        }
+        return padded(rgba,width:w,height:h,mask:result,pixels:margin)
+    }
+    static func padded(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8],pixels:Int)->[UInt8] {
+        guard mask.count==w*h,rgba.count==w*h*4 else {return mask}
+        let radius=max(0,min(24,pixels))
+        guard radius>0,mask.contains(255) else {return mask}
+        var result=mask,distance=[UInt8](repeating:255,count:w*h),queue=[Int32]()
+        for p in mask.indices where mask[p]>0 {
+            distance[p]=0
+            let x=p%w,y=p/w
+            if (x>0 && mask[p-1]==0) || (x+1<w && mask[p+1]==0) || (y>0 && mask[p-w]==0) || (y+1<h && mask[p+w]==0) {queue.append(Int32(p))}
+        }
+        var head=0
+        while head<queue.count {
+            let p=Int(queue[head]);head+=1
+            guard Int(distance[p])<radius else {continue}
+            let x=p%w,y=p/w,next=distance[p]+1
+            func add(_ q:Int) {if distance[q]>next {distance[q]=next;queue.append(Int32(q))}}
+            if x>0 {add(p-1)};if x+1<w {add(p+1)};if y>0 {add(p-w)};if y+1<h {add(p+w)}
+        }
+        for p in mask.indices where mask[p]==0 && distance[p]<=UInt8(radius) {
+            let i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+            if protectedInk(r,g,b) {continue}
+            let warm=r-b>12 && g-b>2
+            if !warm {
+                if r+g+b<240 {continue}
+                var brightest=r+g+b
+                let x=p%w,y=p/w
+                for dy in [-2,0,2] {for dx in [-2,0,2] {
+                    let q=(min(h-1,max(0,y+dy))*w+min(w-1,max(0,x+dx)))*4
+                    brightest=max(brightest,Int(rgba[q])+Int(rgba[q+1])+Int(rgba[q+2]))
+                }}
+                if brightest-r-g-b>45 {continue}
+            }
+            // Solid replacement around the contour closes detached JPEG/wood fragments.
+            result[p]=255
         }
         return result
     }

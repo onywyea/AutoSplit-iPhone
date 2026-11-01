@@ -173,3 +173,28 @@ check(PDFCompression.balanced.pixelLimit>PDFCompression.small.pixelLimit,"balanc
 check(PDFCompression.original.jpegQuality>PDFCompression.balanced.jpegQuality && PDFCompression.balanced.jpegQuality>PDFCompression.small.jpegQuality,"compression quality decreases in documented order")
 check(PDFCompression.allCases.allSatisfy{$0.jpegQuality>0 && $0.jpegQuality<=1 && $0.pixelLimit>=1500},"PDF profiles have valid encoding values")
 print("All \(passed) core/rotation/edge/export checks passed")
+// v0.2.8: colors sampled from the table fragments visible in the reported failure.
+let realWoodColors:[[UInt8]]=[[151,104,85],[149,100,78],[168,116,89],[174,117,88],[158,101,70],[158,99,71],[172,123,104],[147,99,75]]
+for (n,color) in realWoodColors.enumerated() {
+    check(!EdgeBand.protectedInk(Int(color[0]),Int(color[1]),Int(color[2])),"real wood color \(n+1) is not a red stamp")
+    var fixture=cleanPaper
+    for y in 0..<ph {for x in 0..<5 {for c in 0..<3 {fixture[(y*pw+x)*4+c]=color[c]}}}
+    check(EdgeBand.mask(fixture,width:pw,height:ph,margin:8)[ph/2*pw+2]==255,"real wood color \(n+1) is covered")
+}
+for color in [[200,20,20],[130,45,45],[35,40,120]] {
+    check(EdgeBand.protectedInk(color[0],color[1],color[2]),"actual red or blue ink remains protected")
+}
+var fragments=cleanPaper
+for y in 0..<ph {for x in 0..<5 {for c in 0..<3 {fragments[(y*pw+x)*4+c]=[UInt8(151),104,85][c]}}}
+let fragment=ph/2*pw+10
+for c in 0..<3 {fragments[fragment*4+c]=[UInt8(160),105,75][c]}
+let marginZero=EdgeBand.mask(fragments,width:pw,height:ph,margin:0)
+let marginEight=EdgeBand.mask(fragments,width:pw,height:ph,margin:8)
+let marginSixteen=EdgeBand.mask(fragments,width:pw,height:ph,margin:16)
+check(marginZero[fragment]==0 && marginEight[fragment]==255,"solid margin removes detached table fragment")
+check(marginSixteen.filter{$0>0}.count>marginEight.filter{$0>0}.count,"margin control changes the actual replacement mask")
+check(marginSixteen[ph/2*pw+pw/2]==0,"solid margin does not touch page center")
+for c in 0..<3 {fragments[(ph/2*pw+9)*4+c]=20}
+check(EdgeBand.mask(fragments,width:pw,height:ph,margin:8)[ph/2*pw+9]==0,"black text inside margin remains protected")
+check(!EdgeBand.mask(cleanPaper,width:pw,height:ph,margin:24).contains(255),"largest margin does not activate on a clean sheet")
+print("All \(passed) core/rotation/edge/export/color-regression checks passed")

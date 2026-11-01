@@ -17,7 +17,7 @@ extension Imaging {
             context.draw(cg,in:CGRect(x:0,y:0,width:w,height:h));return true
         }
         guard ok else {return EdgeRepairResult(image:image,changed:0)}
-        var mask=automatic ? EdgeBand.mask(rgba,width:w,height:h,bandFraction:reach) : [UInt8](repeating:0,count:w*h)
+        var mask=automatic ? EdgeBand.mask(rgba,width:w,height:h,bandFraction:0.12,margin:Int((max(0,min(0.24,reach))*100).rounded())) : [UInt8](repeating:0,count:w*h)
         if !strokes.isEmpty {
             let format=UIGraphicsImageRendererFormat();format.scale=1;format.opaque=true
             let painted=UIGraphicsImageRenderer(size:CGSize(width:w,height:h),format:format).image { renderer in

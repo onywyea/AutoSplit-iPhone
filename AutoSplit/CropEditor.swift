@@ -15,6 +15,8 @@ struct PageEditor:View {
     @State private var rendering=false
     @State private var refreshQueued=false
     @State private var generation=0
+    @State private var previewStatus=""
+    @State private var previewDebounce:Task<Void,Never>?
     @State private var showingOriginal=false
     var body:some View {
         ScrollView {
@@ -38,20 +40,21 @@ struct PageEditor:View {
                     Toggle("Автоматично очищати край",isOn:Binding(get:{leaf.edgeFill},set:{leaf.edgeFill=$0;leaf.edgeChoiceExplicit=true})).tint(.mint)
                     DisclosureGroup("Налаштування краю") {
                         VStack(alignment:.leading,spacing:12) {
-                            Text("Зовнішній фон").font(.subheadline)
+                            Text("Запас очищення за контуром").font(.subheadline)
                             HStack {
-                                Slider(value:Binding(get:{(leaf.edgeReach ?? 0.08)*100},set:{leaf.edgeReach=$0/100}),in:2...12,step:1,onEditingChanged:{active in if !active {refresh()}})
-                                Text(String(format:"%.0f%%",(leaf.edgeReach ?? 0.08)*100)).font(.caption.monospacedDigit()).frame(width:38)
+                                Slider(value:Binding(get:{(leaf.edgeReach ?? 0.08)*100},set:{leaf.edgeReach=$0/100}),in:0...24,step:1,onEditingChanged:{active in if !active {queuePreview()}})
+                                Text(String(format:"%.0f px",(leaf.edgeReach ?? 0.08)*100)).font(.caption.monospacedDigit()).frame(width:52)
                             }
                             Text("Перехід усередину паперу").font(.subheadline)
                             HStack {
-                                Slider(value:Binding(get:{(leaf.edgeOverlap ?? 0.06)*100},set:{leaf.edgeOverlap=$0/100}),in:2...12,step:0.5,onEditingChanged:{active in if !active {refresh()}})
-                                Text(String(format:"%.1f%%",(leaf.edgeOverlap ?? 0.06)*100)).font(.caption.monospacedDigit()).frame(width:38)
+                                Slider(value:Binding(get:{(leaf.edgeOverlap ?? 0.06)*100},set:{leaf.edgeOverlap=$0/100}),in:2...12,step:0.5,onEditingChanged:{active in if !active {queuePreview()}})
+                                Text(String(format:"%.1f%%",(leaf.edgeOverlap ?? 0.06)*100)).font(.caption.monospacedDigit()).frame(width:52)
                             }
-                            Text("Зовнішня смуга визначає зону пошуку фону. Перехід заходить на папір і пом’якшує стик. Якщо фон не знайдено, уточніть кути або скористайтесь пензлем.").font(.caption).foregroundStyle(.secondary)
+                            Text("Запас у пікселях прибирає дрібні залишки фону навколо знайденої межі. Плавний перехід продовжується на папір. Результат оновлюється після відпускання повзунка.").font(.caption).foregroundStyle(.secondary)
                         }.padding(.top,10).disabled(!leaf.edgeFill)
                     }
-                    if !leaf.note.isEmpty { Label(leaf.note,systemImage:"info.circle").font(.caption).foregroundStyle(.secondary) }
+                    if !leaf.edgeFill {Label("Очищення вимкнено. Увімкніть перемикач, щоб змінювати край.",systemImage:"info.circle").font(.caption).foregroundStyle(.secondary)}
+                    else if !previewStatus.isEmpty {Label(previewStatus,systemImage:"info.circle").font(.caption).foregroundStyle(.secondary)}
                 }.padding(20).background(Color.card,in:RoundedRectangle(cornerRadius:22)).padding(.horizontal)
                 Button("Залишити весь кадр без обробки") {
                     leaf.quad = .full;leaf.manualCrop=true;leaf.cropVerified=true;leaf.turns=0;leaf.manualTurns=0;leaf.finish = .natural;leaf.edgeFill=false;leaf.edgeChoiceExplicit=true;leaf.cleanupStrokes=nil
@@ -69,9 +72,12 @@ struct PageEditor:View {
             originalImage=await source
             let loaded=await result
             if preview==nil {preview=loaded}
-            if beginCrop && !didShowInitialCrop {didShowInitialCrop=true;cropping=true}
+            if beginCrop && !didShowInitialCrop {didShowInitialCrop=true;cropping=true}else{refresh()}
         }
         .onChange(of:leaf.finish){_,_ in refresh()}.onChange(of:leaf.edgeFill){_,_ in refresh()}
+        .onChange(of:leaf.edgeReach){_,_ in queuePreview()}
+        .onChange(of:leaf.edgeOverlap){_,_ in queuePreview()}
+        .onDisappear{previewDebounce?.cancel()}
         .sheet(isPresented:$cropping) {
             CornerEditor(file:leaf.original,initial:leaf.quad ?? .full) { q in leaf.quad=q;leaf.manualCrop=true;leaf.cropVerified=true;refresh() }
         }
@@ -88,6 +94,14 @@ struct PageEditor:View {
     func tool(_ title:String,_ icon:String,action:@escaping()->Void)->some View {
         Button(action:action){VStack(spacing:8){Image(systemName:icon).font(.title3);Text(title).font(.caption)}}.tint(.primary)
     }
+    func queuePreview() {
+        previewDebounce?.cancel()
+        previewDebounce=Task {
+            try? await Task.sleep(nanoseconds:200_000_000)
+            guard !Task.isCancelled else {return}
+            refresh()
+        }
+    }
     func refresh() {
         generation+=1
         guard !rendering else {refreshQueued=true;return}
@@ -95,8 +109,11 @@ struct PageEditor:View {
         rendering=true
         Task {
             do {
-                let image=try await Task.detached(priority:.userInitiated) {try autoreleasepool{try Imaging.render(item)}}.value
-                if generation==version {preview=image;showingOriginal=false}
+                let result=try await Task.detached(priority:.userInitiated) {try autoreleasepool{try Imaging.renderWithEdgeReport(item)}}.value
+                if generation==version {
+                    preview=result.image;showingOriginal=false
+                    previewStatus = !item.edgeFill ? "Очищення вимкнено":(result.changed==0 ? "Фон не знайдено — уточніть кути або скористайтесь пензлем":"Край оновлено · замінено \(result.changed) пікселів")
+                }
             } catch {store.error=error.localizedDescription}
             rendering=false
             if refreshQueued {refreshQueued=false;refresh()}
