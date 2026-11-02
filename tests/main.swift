@@ -198,3 +198,41 @@ for c in 0..<3 {fragments[(ph/2*pw+9)*4+c]=20}
 check(EdgeBand.mask(fragments,width:pw,height:ph,margin:8)[ph/2*pw+9]==0,"black text inside margin remains protected")
 check(!EdgeBand.mask(cleanPaper,width:pw,height:ph,margin:24).contains(255),"largest margin does not activate on a clean sheet")
 print("All \(passed) core/rotation/edge/export/color-regression checks passed")
+// v0.2.9: cleaning cannot create a gray halo in a brighter source region.
+var haloFixture=paperImage(true)
+for y in 0..<ph {for x in 5..<24 {for c in 0..<3 {haloFixture[(y*pw+x)*4+c]=250}}}
+let haloMask=EdgeBand.mask(haloFixture,width:pw,height:ph,margin:8)
+let haloResult=PaperRaster.feathered(haloFixture,width:pw,height:ph,mask:haloMask,radius:24)
+check((0..<pw*ph).allSatisfy{p in (0..<3).allSatisfy{haloResult[p*4+$0]>=haloFixture[p*4+$0]}},"edge repair never darkens any original color channel")
+check((0..<ph).allSatisfy{y in (0..<3).allSatisfy{haloResult[(y*pw+15)*4+$0]>=250}},"bright paper inside the transition cannot turn into a gray strip")
+var grainFixture=paperImage(true)
+for y in 30..<70 {for c in 0..<3 {grainFixture[(y*pw+5)*4+c]=20}}
+let grainMask=EdgeBand.mask(grainFixture,width:pw,height:ph,margin:8)
+check(grainMask[50*pw+5]==255,"dark table grain beside warm wood is treated as background")
+for y in 30..<70 {for c in 0..<3 {grainFixture[(y*pw+12)*4+c]=20}}
+check(EdgeBand.mask(grainFixture,width:pw,height:ph,margin:8)[50*pw+12]==0,"a black stroke on neutral paper is still protected")
+print("All \(passed) core/rotation/edge/export/color/halo checks passed")
+
+check(!EdgeBand.protectedInk(158,152,164),"bluish JPEG noise is not blue ink")
+check(!EdgeBand.protectedInk(191,178,188),"table grain with JPEG tint is not blue ink")
+check(EdgeBand.protectedInk(181,190,205),"faint but chromatically blue stamp is protected")
+var faintStamp=cleanPaper
+let faintPoint=ph/2*pw+9
+for c in 0..<3 {faintStamp[faintPoint*4+c]=[UInt8(181),190,205][c]}
+let faintAlpha=PaperRaster.overlap(faintStamp,width:pw,height:ph,mask:borderMask,radius:24)
+check(faintAlpha[faintPoint]==0,"faint stamp is protected inside feather, not only in base mask")
+print("All \(passed) core/rotation/edge/export/color/halo/stamp checks passed")
+// v0.2.10: the last brown dots were weak reddish wood, not saturated red ink.
+for rgb in [[125,74,66],[141,91,80],[177,143,136],[172,136,128],[180,155,150]] {
+    check(!EdgeBand.protectedInk(rgb[0],rgb[1],rgb[2]),"weak brown residual is not protected as red ink")
+    var dotFixture=cleanPaper
+    for y in 0..<ph {for x in 0..<5 {for c in 0..<3 {dotFixture[(y*pw+x)*4+c]=[UInt8(151),104,85][c]}}}
+    for c in 0..<3 {dotFixture[(ph/2*pw+8)*4+c]=UInt8(rgb[c])}
+    check(EdgeBand.mask(dotFixture,width:pw,height:ph,margin:8)[ph/2*pw+8]==255,"weak brown isolated dot is included in the replacement mask")
+}
+check(EdgeBand.protectedInk(130,45,45),"dark saturated red mark remains protected")
+check(EdgeBand.protectedInk(200,20,20),"bright saturated red stamp remains protected")
+var faintRed=cleanPaper
+for c in 0..<3 {faintRed[(ph/2*pw+9)*4+c]=[UInt8(185),125,125][c]}
+check(PaperRaster.overlap(faintRed,width:pw,height:ph,mask:borderMask,radius:24)[ph/2*pw+9]==0,"faint red print on paper survives the feather")
+print("All \(passed) core/rotation/edge/export/color/halo/stamp/residue checks passed")

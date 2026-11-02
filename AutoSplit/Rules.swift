@@ -230,7 +230,7 @@ enum PaperRaster {
                 brightest=max(brightest,Int(rgba[q])+Int(rgba[q+1])+Int(rgba[q+2]))
             }}
             let ink=r+g+b<240 || brightest-r-g-b>45
-            if ink || max(r,max(g,b))-min(r,min(g,b))>24 {continue}
+            if ink || EdgeBand.protectedInk(r,g,b) || max(r,max(g,b))-min(r,min(g,b))>24 {continue}
             let t=max(0,min(1,Double(Int(distance[p])-inset)/Double(feather-inset)))
             let smooth=t*t*(3-2*t)
             alpha[p]=UInt8((1-smooth)*255)
@@ -245,28 +245,52 @@ enum PaperRaster {
         var output=rgba
         for p in alpha.indices where alpha[p]>0 {
             let a=Int(alpha[p])
-            for c in 0..<3 {output[p*4+c]=UInt8((Int(fill[p*4+c])*a+Int(rgba[p*4+c])*(255-a)+127)/255)}
+            for c in 0..<3 {
+                let original=Int(rgba[p*4+c])
+                let mixed=(Int(fill[p*4+c])*a+original*(255-a)+127)/255
+                // Cleaning must never introduce a darker halo into the original paper.
+                output[p*4+c]=UInt8(max(original,mixed))
+            }
         }
         return output
     }
     static func extend(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8])->[UInt8] {
         guard w>16,h>16,rgba.count==w*h*4,mask.count==w*h,mask.contains(255) else {return rgba}
-        let scale=max(1,Int(ceil(Double(max(w,h))/320)))
+        // Estimate the paper itself, excluding dark print, portraits and colored marks.
+        var paperLevels=[Int]()
+        let paperStep=max(1,min(w,h)/100)
+        for y in stride(from:0,to:h,by:paperStep) {for x in stride(from:0,to:w,by:paperStep) {
+            let p=y*w+x,i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+            if mask[p]==0 && max(r,max(g,b))-min(r,min(g,b))<=25 && r+g+b>330 {paperLevels.append((r+g+b)/3)}
+        }}
+        guard !paperLevels.isEmpty else {return rgba}
+        paperLevels.sort()
+        let paperFloor=max(110,paperLevels[paperLevels.count*85/100]-25)
+        // A coarse illumination surface cannot copy letter-shaped dark patches.
+        let scale=max(1,Int(ceil(Double(max(w,h))/64)))
         let gw=(w+scale-1)/scale,gh=(h+scale-1)/scale,n=gw*gh
         var field=[Float](repeating:0,count:n*3),missing=[Bool](repeating:false,count:n)
         for gy in 0..<gh {for gx in 0..<gw {
-            let p=gy*gw+gx;var counts=0,bg=0,sums=[Int](repeating:0,count:3),samples=0
-            for y in stride(from:gy*scale,to:min(h,(gy+1)*scale),by:max(1,scale/3)) {
-                for x in stride(from:gx*scale,to:min(w,(gx+1)*scale),by:max(1,scale/3)) {
+            let p=gy*gw+gx;var bg=0,samples=0,donors=[Int]()
+            for y in stride(from:gy*scale,to:min(h,(gy+1)*scale),by:max(1,scale/6)) {
+                for x in stride(from:gx*scale,to:min(w,(gx+1)*scale),by:max(1,scale/6)) {
                     let q=y*w+x;samples+=1
                     if mask[q]>0 {bg+=1;continue}
                     let i=q*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
-                    if r+g+b<330 || max(r,max(g,b))-min(r,min(g,b))>30 {continue}
-                    counts+=1;for c in 0..<3 {sums[c]+=Int(rgba[q*4+c])}
+                    if (r+g+b)/3<paperFloor || max(r,max(g,b))-min(r,min(g,b))>25 {continue}
+                    donors.append(q)
                 }
             }
-            missing[p]=bg*5>samples || counts==0
-            if counts>0 {for c in 0..<3 {field[p*3+c]=Float(sums[c])/Float(counts)}}
+            missing[p]=bg*5>samples || donors.isEmpty
+            if !donors.isEmpty {
+                donors.sort {a,b in
+                    Int(rgba[a*4])+Int(rgba[a*4+1])+Int(rgba[a*4+2]) > Int(rgba[b*4])+Int(rgba[b*4+1])+Int(rgba[b*4+2])
+                }
+                let bright=donors.prefix(max(1,donors.count/3))
+                for c in 0..<3 {
+                    field[p*3+c]=Float(bright.reduce(0){$0+Int(rgba[$1*4+c])})/Float(bright.count)
+                }
+            }
         }}
         // Multi-source propagation initializes a local paper donor for each missing cell.
         var donor=[Int32](repeating:-1,count:n),queue=[Int32]()
@@ -283,7 +307,7 @@ enum PaperRaster {
         let holes=(0..<n).filter {missing[$0]}
         for p in holes {for c in 0..<3 {field[p*3+c]=field[Int(donor[p])*3+c]}}
         // Harmonic continuation matches nearby lighting instead of one global paper color.
-        for _ in 0..<500 {
+        for _ in 0..<160 {
             for p in holes {
                 let x=p%gw,y=p/gw
                 let l=x>0 ? p-1:p,r=x+1<gw ? p+1:p,t=y>0 ? p-gw:p,b=y+1<gh ? p+gw:p
@@ -404,8 +428,9 @@ enum CropSafety {
 enum EdgeBand {
     static func protectedInk(_ r:Int,_ g:Int,_ b:Int)->Bool {
         // Red ink has little green-yellow component. Brown wood contains both.
-        let red=r-g>45 && g-b<max(12,(r-g)/5)
-        return b-r>4 || b-g>8 || red
+        let red=r-g>60 && r-b>=80 && g-b<max(12,(r-g)/5)
+        let blue=(b-r>14 && b-g>10) || (b-g>22 && b-r>5)
+        return blue || red
     }
     static func mask(_ rgba:[UInt8],width w:Int,height h:Int,bandFraction:Double=0.12,margin:Int=8)->[UInt8] {
         let n=w*h
@@ -491,7 +516,15 @@ enum EdgeBand {
             let i=p*4,r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
             if protectedInk(r,g,b) {continue}
             let warm=r-b>12 && g-b>2
-            if !warm {
+            let x=p%w,y=p/w
+            var warmNeighbours=0
+            for dy in [-3,0,3] {for dx in [-3,0,3] {
+                let q=(min(h-1,max(0,y+dy))*w+min(w-1,max(0,x+dx)))*4
+                let nr=Int(rgba[q]),ng=Int(rgba[q+1]),nb=Int(rgba[q+2])
+                if nr-nb>12 && ng-nb>2 && !protectedInk(nr,ng,nb) {warmNeighbours+=1}
+            }}
+            let woodGrain=warmNeighbours>=3
+            if !warm && !woodGrain {
                 if r+g+b<240 {continue}
                 var brightest=r+g+b
                 let x=p%w,y=p/w

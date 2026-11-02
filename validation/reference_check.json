@@ -1,0 +1,23 @@
+{
+  "source": "User-supplied 16-page PDF; not included",
+  "pages": [
+    2,
+    11
+  ],
+  "model": "Python reference of new raster stage; not native Swift execution",
+  "source_pixels_darken": 0,
+  "page_2_checked_dark_text_pixels_changed": 0,
+  "page_11_checked_top_photo_pixels_changed": 0,
+  "page_11_checked_bottom_photo_pixels_changed": 0,
+  "page_11_checked_signature_pixels_changed": 0,
+  "model_version": "0.2.10",
+  "last_30_rows_warm_dark_pixels_before": {
+    "2": 8,
+    "11": 8
+  },
+  "last_30_rows_warm_dark_pixels_after": {
+    "2": 0,
+    "11": 0
+  },
+  "warm_dark_criterion": "R-B>15 and G-B>-5 and R<235"
+}
