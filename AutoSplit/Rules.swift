@@ -19,13 +19,33 @@ struct CaptureStability {
         changeFrames=0;resetStability()
     }
     static func distance(_ a:Quad,_ b:Quad)->Double {
-        zip(a.points,b.points).map {hypot($0.x-$1.x,$0.y-$1.y)}.reduce(0,+)/4
+        guard a.points.count==4,b.points.count==4 else {return 1.0}
+        var total:Double=0.0
+        for index in 0..<4 {
+            let dx:Double=a.points[index].x-b.points[index].x
+            let dy:Double=a.points[index].y-b.points[index].y
+            total += hypot(dx,dy)
+        }
+        return total/4.0
     }
     static func motion(_ a:[UInt8],_ b:[UInt8])->Double {
         guard !a.isEmpty,a.count==b.count else {return 0}
-        let ma=a.reduce(0.0){$0+Double($1)}/Double(a.count)
-        let mb=b.reduce(0.0){$0+Double($1)}/Double(b.count)
-        return zip(a,b).map {abs((Double($0)-ma)-(Double($1)-mb))/255}.reduce(0,+)/Double(a.count)
+        var sumA:Double=0.0
+        var sumB:Double=0.0
+        for index in a.indices {
+            sumA += Double(a[index])
+            sumB += Double(b[index])
+        }
+        let count:Double=Double(a.count)
+        let meanA:Double=sumA/count
+        let meanB:Double=sumB/count
+        var difference:Double=0.0
+        for index in a.indices {
+            let centeredA:Double=Double(a[index])-meanA
+            let centeredB:Double=Double(b[index])-meanB
+            difference += abs(centeredA-centeredB)
+        }
+        return difference/(255.0*count)
     }
     mutating func update(_ candidate:Quad?,signature current:[UInt8],time:Double,focusing:Bool)->Bool {
         let dt=min(0.3,max(0,time-(lastTime ?? time)))
@@ -47,9 +67,15 @@ struct CaptureStability {
         // Follow real motion, smooth small jitter only; never reuse stale corners
         // for the high-resolution photograph's independent crop check.
         if let previous=quad,delta<0.05 {
-            quad=Quad(points:zip(previous.points,candidate.points).map {
-                Point(x:$0.x*0.35+$1.x*0.65,y:$0.y*0.35+$1.y*0.65)
-            })
+            var smoothed:[Point]=[]
+            for index in 0..<4 {
+                let old=previous.points[index]
+                let new=candidate.points[index]
+                let x:Double=old.x*0.35+new.x*0.65
+                let y:Double=old.y*0.35+new.y*0.65
+                smoothed.append(Point(x:x,y:y))
+            }
+            quad=Quad(points:smoothed)
         } else {quad=candidate}
         signature=current
         if delta>0.09 || movement>0.08 {credit=0;focusTime=0}
