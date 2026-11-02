@@ -1,0 +1,13 @@
+{
+  "version": "0.3.3",
+  "build": 16,
+  "swift_syntax_files": 20,
+  "syntax_errors": [],
+  "package_check": "passed",
+  "native_build": "not_run_no_Xcode",
+  "physical_lens_switch_test": "not_run",
+  "originals_share_sheet_test": "not_run",
+  "image_processing_changed": false,
+  "core_and_tests_changed": false,
+  "original_export": "byte copy, no imaging calls"
+}

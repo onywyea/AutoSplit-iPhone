@@ -301,4 +301,37 @@ final class ScannerStore:ObservableObject {
             status="PDF підготовлено"
         } catch { self.error=error.localizedDescription }
     }
+    func exportOriginals(_ id:UUID,pageID:UUID?=nil) async -> [URL] {
+        guard !busy,savingPhotos==0,let doc=document(id) else {return []}
+        busy=true;error=nil;status="Підготовка оригіналів…"
+        defer {busy=false}
+        let selected=doc.pages.enumerated().filter {pageID==nil || $0.element.id==pageID}
+        guard !selected.isEmpty else {error="Оригінал цієї сторінки недоступний";return []}
+        do {
+            return try await Task.detached(priority:.userInitiated) { () throws -> [URL] in
+                let folder=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString,isDirectory:true)
+                try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+                var urls:[URL]=[]
+                do {
+                    for item in selected {
+                        let name=item.element.original
+                        guard (name as NSString).lastPathComponent==name,
+                              FileManager.default.fileExists(atPath:Disk.url(name).path) else {
+                            throw ScanError.message("Оригінал сторінки \(item.offset+1) відсутній")
+                        }
+                        let ext=(name as NSString).pathExtension
+                        let filename="Сторінка_\(item.offset+1)_оригінал."+(ext.isEmpty ? "jpg":ext)
+                        let destination=folder.appendingPathComponent(filename)
+                        // Copy saved original bytes; no render, crop, OCR or JPEG encoding.
+                        try FileManager.default.copyItem(at:Disk.url(name),to:destination)
+                        urls.append(destination)
+                    }
+                    return urls
+                } catch {
+                    try? FileManager.default.removeItem(at:folder)
+                    throw error
+                }
+            }.value
+        } catch {self.error=error.localizedDescription;return []}
+    }
 }

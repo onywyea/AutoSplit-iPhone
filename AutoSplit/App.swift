@@ -118,6 +118,7 @@ struct DocumentView:View {
     @State private var naming=false
     @State private var handoff=false
     @State private var styling=false
+    @State private var originals=false
     @State private var deleting=false
     @State private var editMode:EditMode = .inactive
     var doc:ScanDocument? {store.document(documentID)}
@@ -188,7 +189,7 @@ struct DocumentView:View {
                 Button(editMode == .active ? "Готово":"Порядок"){withAnimation{editMode = editMode == .active ? .inactive:.active}}.disabled(store.busy || (doc?.pages.isEmpty ?? true))
             }
             ToolbarItem(placement:.topBarTrailing){Button{sharing=true}label:{Image(systemName:"square.and.arrow.up")}.disabled(store.busy || (doc?.pages.isEmpty ?? true)).accessibilityLabel("Експорт і стиснення PDF")}
-            ToolbarItem(placement:.topBarTrailing){Menu{Button("Обробити краї всіх сторінок"){Task{await store.ensureEdgeProcessing(documentID,force:true)}};Button("Відновити з оригіналів і обробити заново"){Task{await store.rebuildSafely(documentID)}};Button("Повторити автоповорот усіх сторінок"){Task{await store.rotateAutomatically(documentID)}};Button("Видалити скан",role:.destructive){deleting=true}}label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy)}
+            ToolbarItem(placement:.topBarTrailing){Menu{Button("Експорт оригіналів фото"){originals=true};Button("Обробити краї всіх сторінок"){Task{await store.ensureEdgeProcessing(documentID,force:true)}};Button("Відновити з оригіналів і обробити заново"){Task{await store.rebuildSafely(documentID)}};Button("Повторити автоповорот усіх сторінок"){Task{await store.rotateAutomatically(documentID)}};Button("Видалити скан",role:.destructive){deleting=true}}label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy)}
         }
         .fullScreenCover(isPresented:$capturing,onDismiss:{Task{await store.analyze(documentID)}}){CaptureView(documentID:documentID)}
         .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true){result in
@@ -201,6 +202,7 @@ struct DocumentView:View {
         .sheet(isPresented:$naming){NameSheet(documentID:documentID)}
         .sheet(isPresented:$handoff){HandoffView(ids:[documentID])}
         .sheet(isPresented:$styling){DocumentStyleSheet(documentID:documentID)}
+        .sheet(isPresented:$originals){OriginalsExportSheet(documentID:documentID)}
         .confirmationDialog("Видалити скан зі списку?",isPresented:$deleting,titleVisibility:.visible){Button("Видалити",role:.destructive){store.deleteDocument(documentID);dismiss()}}
     }
 }

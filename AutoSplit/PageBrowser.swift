@@ -8,6 +8,7 @@ struct PageBrowser:View {
     @State private var editing=false
     @State private var deleting=false
     @State private var styling=false
+    @State private var originals=false
     @State private var deletionTarget:UUID?
     var pages:[Leaf] {store.document(documentID)?.pages ?? []}
     var position:Int {pages.firstIndex(where:{$0.id==selection}) ?? 0}
@@ -51,6 +52,7 @@ struct PageBrowser:View {
         .toolbar {
             ToolbarItem(placement:.topBarTrailing) {
                 Menu {
+                    Button {originals=true} label:{Label("Поділитися оригіналом",systemImage:"photo")}
                     Button {styling=true} label:{Label("Стиль усіх сторінок",systemImage:"slider.horizontal.3")}
                     Button {Task {await store.rotateAutomatically(documentID,pageID:selection)}} label:{Label("Автоповорот цієї сторінки",systemImage:"wand.and.stars")}
                 } label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy || pages.isEmpty).accessibilityLabel("Дії зі сканом")
@@ -64,6 +66,7 @@ struct PageBrowser:View {
         .overlay(alignment:.top) {if store.busy {HStack {ProgressView();Text(store.status).font(.caption)}.padding(10).background(.regularMaterial,in:Capsule()).padding(.top,8)}}
         .sheet(isPresented:$editing) {if let page=selectedPage {NavigationStack {PageEditor(documentID:documentID,leaf:page,beginCrop:page.sourceKind=="camera" && page.cropVerified != true)}}}
         .sheet(isPresented:$styling) {DocumentStyleSheet(documentID:documentID)}
+        .sheet(isPresented:$originals) {OriginalsExportSheet(documentID:documentID,pageID:selection)}
         .confirmationDialog("Видалити цю сторінку зі скану?",isPresented:$deleting,titleVisibility:.visible) {
             Button("Видалити сторінку",role:.destructive) {deleteSelectedPage()}
             Button("Скасувати",role:.cancel) {deletionTarget=nil}

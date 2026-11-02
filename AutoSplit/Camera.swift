@@ -4,12 +4,25 @@ import Vision
 import CoreImage
 import ImageIO
 
+struct CameraLens:Identifiable,Equatable {
+    let id:String
+    let title:String
+}
+
 final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
     let session=AVCaptureSession()
     private let queue=DispatchQueue(label:"scan.camera")
     private let frames=DispatchQueue(label:"scan.edges")
     private let output=AVCapturePhotoOutput()
     private var camera:AVCaptureDevice?
+    private var cameraInput:AVCaptureDeviceInput?
+    private var lensDevices:[AVCaptureDevice]=[]
+    private var changingLens=false
+    private var exposureBias:Float=0.3
+    private var captureAllowedAfter=Date.distantPast
+    @Published var lenses:[CameraLens]=[]
+    @Published var selectedLensID=""
+    @Published var switchingLens=false
     private let processingLock=NSLock()
     private var processing=false
     @Published var preparing=false
@@ -43,8 +56,13 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                 do {
                     if !self.configured {
                         self.session.beginConfiguration(); self.session.sessionPreset = .photo
-                        guard let device=AVCaptureDevice.default(.builtInWideAngleCamera,for:.video,position:.back) else { throw ScanError.message("Камера недоступна") }
-                        self.camera=device
+                        let discovery=AVCaptureDevice.DiscoverySession(deviceTypes:[.builtInUltraWideCamera,.builtInWideAngleCamera,.builtInTelephotoCamera],mediaType:.video,position:.back)
+                        self.lensDevices=discovery.devices
+                        let saved=UserDefaults.standard.string(forKey:"scanflow.cameraLens")
+                        let preferred=self.lensDevices.first(where:{$0.uniqueID==saved})
+                        let normal=self.lensDevices.first(where:{$0.deviceType == .builtInWideAngleCamera})
+                        guard let device=preferred ?? normal ?? self.lensDevices.first else { throw ScanError.message("Камера недоступна") }
+                        self.processingLock.lock();self.camera=device;self.processingLock.unlock()
                         try device.lockForConfiguration()
                         if device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
                         if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
@@ -53,7 +71,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                         device.unlockForConfiguration()
                         let input=try AVCaptureDeviceInput(device:device)
                         guard self.session.canAddInput(input),self.session.canAddOutput(self.output) else { throw ScanError.message("Не вдалося налаштувати камеру") }
-                        self.session.addInput(input); self.session.addOutput(self.output)
+                        self.session.addInput(input);self.cameraInput=input; self.session.addOutput(self.output)
                         self.output.maxPhotoQualityPrioritization = .quality
                         let dimensions=device.activeFormat.supportedMaxPhotoDimensions
                         let usable=dimensions.filter {Int64($0.width)*Int64($0.height)<=12_500_000}
@@ -69,8 +87,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                         self.session.commitConfiguration(); self.configured=true
                     }
                     self.session.startRunning()
-                    let supported=self.output.supportedFlashModes.contains(.on)
-                    DispatchQueue.main.async { self.flashSupported=supported }
+                    self.publishLenses()
                 } catch {
                     if !self.configured { self.session.commitConfiguration() }
                     DispatchQueue.main.async { self.message=error.localizedDescription }
@@ -78,7 +95,85 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             }
         }
     }
-    private var processingNow:Bool {processingLock.lock();defer {processingLock.unlock()};return processing}
+    private var processingNow:Bool {processingLock.lock();defer {processingLock.unlock()};return processing || changingLens}
+    private func publishLenses() {
+        var choices:[CameraLens]=[]
+        for type in [AVCaptureDevice.DeviceType.builtInUltraWideCamera,.builtInWideAngleCamera,.builtInTelephotoCamera] {
+            for device in lensDevices where device.deviceType==type {
+                let title:String
+                if type == .builtInUltraWideCamera {title="Ультраширококутна"}
+                else if type == .builtInTelephotoCamera {title="Телеоб’єктив"}
+                else {title="Основна"}
+                choices.append(CameraLens(id:device.uniqueID,title:title))
+            }
+        }
+        let id=camera?.uniqueID ?? ""
+        let supported=camera?.hasFlash == true && output.supportedFlashModes.contains(.on)
+        DispatchQueue.main.async {self.lenses=choices;self.selectedLensID=id;self.flashSupported=supported;self.lastFlashFired=nil}
+    }
+    private func configureLens(_ device:AVCaptureDevice) throws {
+        try device.lockForConfiguration()
+        defer {device.unlockForConfiguration()}
+        if device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
+        if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
+        if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {device.whiteBalanceMode = .continuousAutoWhiteBalance}
+        let bias=min(device.maxExposureTargetBias,max(device.minExposureTargetBias,exposureBias))
+        device.setExposureTargetBias(bias,completionHandler:nil)
+    }
+    private func configurePhotoDimensions(_ device:AVCaptureDevice) {
+        let dimensions=device.activeFormat.supportedMaxPhotoDimensions
+        let usable=dimensions.filter {Int64($0.width)*Int64($0.height)<=12_500_000}
+        if let best=(usable.isEmpty ? dimensions:usable).max(by:{Int64($0.width)*Int64($0.height)<Int64($1.width)*Int64($1.height)}) {
+            output.maxPhotoDimensions=best
+        }
+        for item in session.outputs {
+            if let connection=item.connection(with:.video),connection.isVideoRotationAngleSupported(90) {connection.videoRotationAngle=90}
+        }
+    }
+    func selectLens(_ id:String) {
+        queue.async {
+            guard self.configured,self.session.isRunning,!self.capturing,!self.processingNow,
+                  let device=self.lensDevices.first(where:{$0.uniqueID==id}),
+                  let old=self.cameraInput,old.device.uniqueID != id else {return}
+            self.processingLock.lock();self.changingLens=true;self.processingLock.unlock()
+            DispatchQueue.main.async {self.switchingLens=true;self.message="Перемикання об’єктива…"}
+            defer {
+                self.processingLock.lock();self.changingLens=false;self.processingLock.unlock()
+                DispatchQueue.main.async {self.switchingLens=false}
+            }
+            do {
+                let input=try AVCaptureDeviceInput(device:device)
+                try self.configureLens(device)
+                self.session.beginConfiguration()
+                self.session.removeInput(old)
+                if self.session.canAddInput(input) {
+                    self.session.addInput(input)
+                    self.processingLock.lock();self.camera=device;self.processingLock.unlock()
+                    self.cameraInput=input
+                    self.configurePhotoDimensions(device)
+                    self.session.commitConfiguration()
+                    UserDefaults.standard.set(id,forKey:"scanflow.cameraLens")
+                    self.captureAllowedAfter=Date().addingTimeInterval(0.8)
+                    self.frames.async {
+                        self.tracker=CaptureStability();self.lastSegmentation = .distantPast
+                        self.ignoreFramesUntil=Date().addingTimeInterval(0.8)
+                        DispatchQueue.main.async {self.detected=false;self.detectedQuad=nil}
+                    }
+                    self.publishLenses()
+                    DispatchQueue.main.async {self.message="Наведіть камеру на аркуш"}
+                } else {
+                    if self.session.canAddInput(old) {self.session.addInput(old)}
+                    self.configurePhotoDimensions(old.device)
+                    self.session.commitConfiguration()
+                    DispatchQueue.main.async {self.message="Не вдалося перемкнути об’єктив. Попередню камеру збережено"}
+                }
+            } catch {DispatchQueue.main.async {self.message=error.localizedDescription}}
+        }
+    }
+    private var focusAdjusting:Bool {
+        processingLock.lock();let device=camera;processingLock.unlock()
+        return device?.isAdjustingFocus == true
+    }
     func setProcessing(_ value:Bool) {
         processingLock.lock();processing=value;processingLock.unlock()
         DispatchQueue.main.async {self.preparing=value;if value {self.message="Визначення меж аркуша…"}}
@@ -98,6 +193,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             do {
                 try device.lockForConfiguration()
                 let bias=min(device.maxExposureTargetBias,max(device.minExposureTargetBias,Float(value)))
+                self.exposureBias=bias
                 device.setExposureTargetBias(bias,completionHandler:nil);device.unlockForConfiguration()
                 DispatchQueue.main.async {self.brightness=Double(bias)}
             } catch {DispatchQueue.main.async {self.message="Не вдалося змінити експозицію"}}
@@ -125,13 +221,13 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     }
     func shoot() {
         queue.async {
-            guard self.configured,self.session.isRunning,!self.capturing,!self.processingNow else { return }
+            guard self.configured,self.session.isRunning,!self.capturing,!self.processingNow,Date()>=self.captureAllowedAfter else { return }
             self.capturing=true
             DispatchQueue.main.async { self.shooting=true }
             let settings=AVCapturePhotoSettings()
             settings.photoQualityPrioritization = .quality
             settings.maxPhotoDimensions=self.output.maxPhotoDimensions
-            let selectedMode:AVCaptureDevice.FlashMode=self.useFlash ? .on : .off
+            let selectedMode:AVCaptureDevice.FlashMode=self.useFlash && self.camera?.hasFlash == true ? .on : .off
             settings.flashMode=self.output.supportedFlashModes.contains(selectedMode) ? selectedMode : .off
             self.pauseDetectionAfterShot()
             self.output.capturePhoto(with:settings,delegate:self)
@@ -207,7 +303,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                 return score(a)<score(b)
             }?.0
             let signature=frameSignature(buffer)
-            let ready=tracker.update(candidate,signature:signature,time:now.timeIntervalSinceReferenceDate,focusing:camera?.isAdjustingFocus == true)
+            let ready=tracker.update(candidate,signature:signature,time:now.timeIntervalSinceReferenceDate,focusing:focusAdjusting)
             let quad=tracker.quad
             let aspect=CGFloat(CVPixelBufferGetWidth(buffer))/CGFloat(CVPixelBufferGetHeight(buffer))
             let text = quad == nil ? "У кадрі має бути весь аркуш · можна зняти вручну" :
@@ -242,6 +338,34 @@ struct CameraPreview:UIViewRepresentable {
     }
     func updateUIView(_ view:CameraLayer,context:Context){view.setNeedsLayout()}
 }
+struct CameraLensPicker:View {
+    @ObservedObject var engine:CameraEngine
+    let disabled:Bool
+    private var title:String {
+        if engine.switchingLens {return "Перемикання…"}
+        return engine.lenses.first(where:{$0.id==engine.selectedLensID})?.title ?? "Об’єктив"
+    }
+    var body:some View {
+        HStack {
+            Menu {
+                ForEach(engine.lenses) {lens in
+                    Button {engine.selectLens(lens.id)} label:{
+                        if lens.id==engine.selectedLensID {Label(lens.title,systemImage:"checkmark")}
+                        else {Text(lens.title)}
+                    }
+                }
+            } label:{
+                Label(title,systemImage:"camera.aperture").font(.subheadline.weight(.medium))
+                    .padding(.horizontal,12).padding(.vertical,8)
+                    .background(.black.opacity(0.55),in:Capsule())
+            }.disabled(disabled || engine.lenses.count<2).accessibilityLabel("Вибрати об’єктив камери")
+            Spacer()
+            if !engine.flashSupported && !engine.lenses.isEmpty {
+                Text("Без спалаху").font(.caption).padding(8).background(.black.opacity(0.55),in:Capsule())
+            }
+        }
+    }
+}
 struct CaptureView:View {
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
@@ -255,7 +379,7 @@ struct CaptureView:View {
     let documentID:UUID
     var pages:[Leaf] {store.document(documentID)?.pages ?? []}
     var count:Int {pages.count}
-    var waiting:Bool {store.savingPhotos>0 || engine.shooting || engine.preparing}
+    var waiting:Bool {store.savingPhotos>0 || engine.shooting || engine.preparing || engine.switchingLens}
     var body:some View {
         ZStack {
             // Full-screen camera: no inset document field, rounded frame or fixed dashed rectangle.
@@ -284,9 +408,10 @@ struct CaptureView:View {
                     Button {dismiss()} label:{Image(systemName:"xmark").frame(width:40,height:40)}.disabled(waiting)
                     Spacer()
                     Button {auto.toggle()} label:{Label(auto ? "Авто":"Вручну",systemImage:auto ? "viewfinder.circle.fill":"viewfinder").font(.subheadline.weight(.semibold))}
-                    Button {engine.toggleFlash()} label:{Image(systemName:engine.flashEnabled ? "bolt.fill":"bolt.slash.fill").foregroundStyle(engine.flashEnabled ? Color.yellow:.white)}.disabled(!engine.flashSupported || engine.shooting).accessibilityLabel("Спалах")
+                    Button {engine.toggleFlash()} label:{Image(systemName:engine.flashEnabled && engine.flashSupported ? "bolt.fill":"bolt.slash.fill").foregroundStyle(engine.flashEnabled && engine.flashSupported ? Color.yellow:.white)}.disabled(!engine.flashSupported || waiting).accessibilityLabel("Спалах")
                     Button {exposure.toggle()} label:{Image(systemName:"sun.max")}.accessibilityLabel("Яскравість фото")
                 }.font(.title3).padding(.horizontal,18)
+                CameraLensPicker(engine:engine,disabled:waiting).padding(.horizontal,22)
                 if exposure {
                     HStack {
                         Image(systemName:"sun.min")
