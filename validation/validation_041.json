@@ -1,0 +1,21 @@
+{
+  "version": "0.4.1",
+  "build": 20,
+  "reported_failure": "Xcode 16.4 type-check timeout at App.swift:31:24 in LibraryView.body",
+  "evidence": "user supplied logs_112559670441.zip",
+  "previous_core_checks_passed_on_GitHub": 179,
+  "changes": [
+    "Extracted LibraryView list, presentations, toolbar and dialogs into distinct opaque view boundaries",
+    "Extracted concrete child Views to LibraryComponents.swift",
+    "Moved resume counts and formatted dates out of nested string interpolation",
+    "Preserved original navigation, selection, import, export, deletion and resume actions"
+  ],
+  "checks": {
+    "swift_parse_files": 23,
+    "swift_parse_errors": 0,
+    "package": "passed",
+    "workflow": "YAML and embedded Python parse"
+  },
+  "native_compile": "not available locally; successful fixed build not yet confirmed",
+  "workflow_note": "Uploaded log used older workflow without Xcode-selection step. Full archive includes updated build.yml."
+}
