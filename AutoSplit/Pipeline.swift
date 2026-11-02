@@ -142,7 +142,7 @@ extension Imaging {
                   let cg=CIContext().createCGImage(out,from:input.extent) else {
                 throw ScanError.message("Не вдалося застосувати білий кольоровий стиль")
             }
-            image=UIImage(cgImage:cg)
+            image=try normalizePaperWhite(UIImage(cgImage:cg))
         } else if mode != .natural,let input=CIImage(image:image) {
             let filter=CIFilter(name:"CIColorControls")!
             filter.setValue(input,forKey:kCIInputImageKey)
@@ -152,6 +152,59 @@ extension Imaging {
             if let out=filter.outputImage,let cg=CIContext().createCGImage(out,from:out.extent) { image=UIImage(cgImage:cg) }
         }
         return edgeFill ? try cleanRim(image) : image
+    }
+    // A shared neutral white point stabilizes the color-document profile
+    // across pages. This is NOT local shadow removal or image inpainting.
+    static func normalizePaperWhite(_ image:UIImage) throws -> UIImage {
+        guard let cg=image.cgImage else {return image}
+        let width=cg.width,height=cg.height,count=width*height
+        var rgba=[UInt8](repeating:0,count:count*4)
+        let flags=CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        let ok=rgba.withUnsafeMutableBytes {raw -> Bool in
+            guard let context=CGContext(data:raw.baseAddress,width:width,height:height,bitsPerComponent:8,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:flags) else {return false}
+            context.draw(cg,in:CGRect(x:0,y:0,width:width,height:height));return true
+        }
+        guard ok else {throw ScanError.message("Не вдалося вирівняти колір паперу")}
+        var red=[Int](repeating:0,count:256),green=red,blue=red
+        var donors=0
+        for pixel in 0..<count {
+            let base=pixel*4
+            let r=Int(rgba[base]),g=Int(rgba[base+1]),b=Int(rgba[base+2])
+            let sum=r+g+b
+            let spread=max(r,max(g,b))-min(r,min(g,b))
+            if sum>=510 && spread<=35 {red[r]+=1;green[g]+=1;blue[b]+=1;donors+=1}
+        }
+        guard donors>=max(1,count/20) else {return image}
+        func whitePoint(_ histogram:[Int])->Double {
+            let target=max(1,Int(ceil(Double(donors)*0.70)))
+            var accumulated=0
+            for value in 0..<256 {
+                accumulated+=histogram[value]
+                if accumulated>=target {return Double(max(180,value))}
+            }
+            return 255.0
+        }
+        let gains=[255.0/whitePoint(red),255.0/whitePoint(green),255.0/whitePoint(blue)]
+        for pixel in 0..<count {
+            let base=pixel*4
+            let r=Int(rgba[base]),g=Int(rgba[base+1]),b=Int(rgba[base+2])
+            let spread=max(r,max(g,b))-min(r,min(g,b))
+            let light=Double(r+g+b)/3.0
+            guard light>140.0,spread<=35 else {continue}
+            let t=min(1.0,max(0.0,(light-140.0)/65.0))
+            let weight=t*t*(3.0-2.0*t)
+            for channel in 0..<3 {
+                let source=Double(rgba[base+channel])
+                let corrected=min(255.0,source*gains[channel])
+                let value=source+(corrected-source)*weight
+                rgba[base+channel]=UInt8(min(255.0,max(0.0,value.rounded())))
+            }
+        }
+        guard let provider=CGDataProvider(data:Data(rgba) as CFData),
+              let result=CGImage(width:width,height:height,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:flags),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent) else {
+            throw ScanError.message("Не вдалося зберегти вирівняний колір")
+        }
+        return UIImage(cgImage:result)
     }
     static func process(_ leaf:Leaf) throws -> PageResult {
         guard let original=Disk.image(leaf.original) else { throw ScanError.message("Не знайдено оригінал сторінки") }

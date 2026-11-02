@@ -124,7 +124,8 @@ final class ScannerStore:ObservableObject {
             documents[i].pages[p].manualTurns=nil
             documents[i].pages[p].ocrReady=false
             documents[i].pages[p].quad=nil;documents[i].pages[p].cropVerified=nil;documents[i].pages[p].manualCrop=nil
-            documents[i].pages[p].cleanupStrokes=nil;documents[i].pages[p].finish = .natural
+            documents[i].pages[p].cleanupStrokes=nil
+            documents[i].pages[p].finish=documents[i].preferredFinish ?? documents[i].pages[p].finish
             documents[i].pages[p].edgeFill=true;documents[i].pages[p].edgeRevision=nil
         }
         error=nil;save();await analyze(id,force:true)
@@ -167,7 +168,7 @@ final class ScannerStore:ObservableObject {
     @discardableResult
     func applyStyle(_ finish:Finish,to id:UUID) async -> Bool {
         guard !busy,savingPhotos==0,let doc=document(id) else {return false}
-        busy=true;stopped=false;error=nil
+        busy=true;stopped=false;error=nil;shareURLs=[];exportSummary=""
         defer {busy=false;save()}
         var completed=0
         for (position,original) in doc.pages.enumerated() {
@@ -235,12 +236,14 @@ final class ScannerStore:ObservableObject {
             try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
             let urls=try await Task.detached(priority:.userInitiated) { () throws -> [URL] in
                 var urls:[URL]=[]
-                for (n,doc) in selected.enumerated() {
+                for doc in selected {
                     guard !doc.pages.isEmpty else{throw ScanError.message("Скан «\(doc.title)» порожній")}
                     if let unverified=doc.pages.firstIndex(where:{$0.sourceKind=="camera" && $0.cropVerified != true}) {
                         throw ScanError.message("Сторінка \(unverified+1): межі аркуша не визначені. Вкажіть кути або явно залиште весь кадр у редакторі.")
                     }
-                    let url=folder.appendingPathComponent("\(n+1)_"+NameFinder.safeName(doc.title)+".pdf")
+                    let documentFolder=folder.appendingPathComponent(doc.id.uuidString,isDirectory:true)
+                    try FileManager.default.createDirectory(at:documentFolder,withIntermediateDirectories:true)
+                    let url=documentFolder.appendingPathComponent(NameFinder.safeName(doc.title)+".pdf")
                     // A PDF import does not need to be rasterized again on export.
                     // Keep original page contents and only update the page rotation.
                     let keepPDF=compression == .original && doc.pages.allSatisfy {

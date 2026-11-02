@@ -1,0 +1,11 @@
+{
+  "version": "0.3.2",
+  "build": 15,
+  "syntax_files": 19,
+  "syntax_errors": 0,
+  "package_check": "passed",
+  "white_point_python_reference_pages": 17,
+  "native_build": "not_run",
+  "native_camera_test": "not_run",
+  "reference_pdf": "extra white point correction on existing PDF, not a new camera capture"
+}
