@@ -1,0 +1,44 @@
+{
+  "version": "0.3.5",
+  "build": 18,
+  "syntax_files": 20,
+  "syntax_errors": 0,
+  "reference_detail_scores": {
+    "0": {
+      "acutance": 0.5296248964861522,
+      "patches": 23
+    },
+    "0.6": {
+      "acutance": 0.44386152830480013,
+      "patches": 23
+    },
+    "1": {
+      "acutance": 0.3358807186259362,
+      "patches": 23
+    },
+    "1.5": {
+      "acutance": 0.21266511991232467,
+      "patches": 23
+    },
+    "2": {
+      "acutance": 0.13309629234785664,
+      "patches": 23
+    }
+  },
+  "reference": "PDF page 1, synthetic Gaussian blur in source pixels; approximate Python reference, not camera frames",
+  "native_compilation": "unavailable",
+  "native_camera_and_performance": "not tested",
+  "native_regressions": "added to tests/main.swift; not executed here",
+  "scope": [
+    "strict AF plus lens-position stability",
+    "text edge detail with center-region check",
+    "fresh measurement checked at shutter",
+    "hardware focus lock during verified capture",
+    "4096px new originals; maximum-quality PDF default"
+  ],
+  "limitations": [
+    "Heuristic preview detail is not proof every glyph is sharp.",
+    "Old reduced originals cannot regain resolution.",
+    "No change to white lighting profile or automatic crop."
+  ]
+}

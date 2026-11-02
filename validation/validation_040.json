@@ -1,0 +1,32 @@
+{
+  "version": "0.4.0",
+  "build": 19,
+  "swift_files_parsed": 22,
+  "swift_syntax_errors": 0,
+  "package_check": "passed",
+  "workflow_yaml": "parsed; embedded Xcode-selector Python parses",
+  "source_routes_checked": [
+    "one DocumentView definition",
+    "new scan opens camera",
+    "batch subset style route",
+    "whole-document-only preferredFinish update",
+    "non-destructive page removal and ID-safe restore",
+    "actual rendered preview autosave on dirty changes",
+    "review confirmation and invalidation",
+    "SDK/compiler/runtime/reduce-transparency glass guards",
+    "opaque document viewer"
+  ],
+  "native_compilation": "not available",
+  "native_camera_tests": "not run",
+  "native_visual_and_performance_tests": "not run",
+  "device_test_needed": [
+    "Xcode build for iOS 17 and 26 API paths",
+    "small iPhone and Dynamic Type",
+    "batch deletion, undo, partial style, cancelled style",
+    "autosave during crop/rapid edits/errors",
+    "Liquid Glass and Reduce Transparency",
+    "regression capture/focus/flash and original exports"
+  ],
+  "compatible_bundle": "ua.autosplit.scanner",
+  "compatible_storage": "ScanFlow-v2"
+}

@@ -6,6 +6,9 @@ struct PageBrowser:View {
     let initialPageID:UUID
     @State private var selection:UUID
     @State private var editing=false
+    @State private var cropNow=false
+    @State private var exporting=false
+    @State private var removed:[(Int,Leaf)]=[]
     @State private var deleting=false
     @State private var styling=false
     @State private var originals=false
@@ -41,12 +44,31 @@ struct PageBrowser:View {
                         .onAppear {proxy.scrollTo(selection,anchor:.center)}
                 }.frame(height:96)
                 }
-                HStack(spacing:24) {
-                    Button {step(-1)} label:{Image(systemName:"chevron.left").frame(width:44,height:44)}.disabled(position==0)
-                    Button {editing=true} label:{Label("Редагувати",systemImage:"slider.horizontal.3").font(.subheadline.weight(.semibold)).frame(maxWidth:.infinity)}.disabled(store.busy)
-                    Button {step(1)} label:{Image(systemName:"chevron.right").frame(width:44,height:44)}.disabled(position+1>=pages.count)
-                }.padding(.horizontal,16).padding(.bottom,6)
+                VStack(spacing:6) {
+                    HStack {
+                        Button {step(-1)} label:{Image(systemName:"chevron.left").frame(width:44,height:44)}.disabled(position==0)
+                        Spacer(minLength:0)
+                        if let page=selectedPage {PageReviewBadge(page:page).lineLimit(1)}
+                        Spacer(minLength:0)
+                        Button {if store.confirmReview(documentID,pageID:selection) {nextIssue()}} label:{Image(systemName:selectedPage?.reviewed==true ? "checkmark.circle.fill":"checkmark.circle").frame(width:44,height:44)}
+                            .accessibilityLabel("Позначити перевіреною та перейти далі")
+                            .disabled(selectedPage?.sourceKind=="camera" && selectedPage?.cropVerified != true)
+                        Button {nextIssue()} label:{Image(systemName:"arrow.right.circle").frame(width:44,height:44)}.accessibilityLabel("Наступна сторінка для перевірки")
+                            .disabled(!pages.contains(where:{$0.id != selection && $0.reviewReason != nil}))
+                        Button {step(1)} label:{Image(systemName:"chevron.right").frame(width:44,height:44)}.disabled(position+1>=pages.count)
+                    }
+                    HStack(spacing:0) {
+                        action("Обрізка","crop") {cropNow=true;editing=true}
+                        action("Поворот","rotate.right") {rotatePage()}
+                        action("Вигляд","slider.horizontal.3") {cropNow=false;editing=true}
+                        action("PDF","square.and.arrow.up") {exporting=true}
+                    }.padding(6).scanGlass()
+                }.padding(.horizontal,14).padding(.bottom,8).disabled(store.busy)
+
             } else {ContentUnavailableView("Немає сторінок",systemImage:"doc")}
+            if !removed.isEmpty {
+                Button {let id=removed.first?.1.id;store.restorePages(documentID,removed:removed);removed=[];if let id {selection=id}} label:{Label("Скасувати видалення",systemImage:"arrow.uturn.backward").frame(minHeight:44)}.disabled(store.busy || store.savingPhotos>0)
+            }
         }.frame(maxWidth:.infinity,maxHeight:.infinity).background(.black)
         .navigationTitle("\(pages.isEmpty ? 0:position+1) / \(pages.count)").navigationBarTitleDisplayMode(.inline).toolbar(.visible,for:.navigationBar)
         .toolbar {
@@ -64,7 +86,8 @@ struct PageBrowser:View {
             }
         }
         .overlay(alignment:.top) {if store.busy {HStack {ProgressView();Text(store.status).font(.caption)}.padding(10).background(.regularMaterial,in:Capsule()).padding(.top,8)}}
-        .sheet(isPresented:$editing) {if let page=selectedPage {NavigationStack {PageEditor(documentID:documentID,leaf:page,beginCrop:page.sourceKind=="camera" && page.cropVerified != true)}}}
+        .sheet(isPresented:$exporting) {PDFExportSheet(ids:[documentID])}
+        .sheet(isPresented:$editing,onDismiss:{cropNow=false}) {if let page=selectedPage {NavigationStack {PageEditor(documentID:documentID,leaf:page,beginCrop:cropNow || (page.sourceKind=="camera" && page.cropVerified != true))}}}
         .sheet(isPresented:$styling) {DocumentStyleSheet(documentID:documentID)}
         .sheet(isPresented:$originals) {OriginalsExportSheet(documentID:documentID,pageID:selection)}
         .confirmationDialog("Видалити цю сторінку зі скану?",isPresented:$deleting,titleVisibility:.visible) {
@@ -74,6 +97,21 @@ struct PageBrowser:View {
         .onChange(of:pages.map(\.id)) {_,ids in
             if !ids.contains(selection),let first=ids.first {selection=first}
         }
+    }
+    private func action(_ title:String,_ icon:String,perform:@escaping ()->Void)->some View {
+        Button(action:perform) {VStack(spacing:5) {Image(systemName:icon).font(.title3);Text(title).font(.caption2)}.frame(maxWidth:.infinity,minHeight:48)}.buttonStyle(.plain).foregroundStyle(Color.accent)
+    }
+    private func nextIssue() {
+        guard !pages.isEmpty else {return}
+        for offset in 1..<pages.count {
+            let index=(position+offset)%pages.count
+            if pages[index].reviewReason != nil {selection=pages[index].id;return}
+        }
+    }
+    private func rotatePage() {
+        guard var page=selectedPage,!store.busy else {return}
+        page.turns=(page.turns+1)%4;page.manualTurns=page.turns
+        Task {await store.updatePage(documentID,page)}
     }
     private func step(_ delta:Int) {
         let next=position+delta
@@ -85,7 +123,7 @@ struct PageBrowser:View {
               let index=pages.firstIndex(where:{$0.id==target}) else {return}
         let remaining=pages.filter {$0.id != target}
         let next=remaining.isEmpty ? nil:remaining[min(index,remaining.count-1)].id
-        store.deletePage(documentID,target)
+        removed=store.deletePages(documentID,ids:[target])
         if let next {selection=next}
         deletionTarget=nil
     }

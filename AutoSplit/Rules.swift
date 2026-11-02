@@ -81,10 +81,9 @@ struct CaptureStability {
         if delta>0.09 || movement>0.08 {credit=0;focusTime=0}
         else if delta<0.04 && movement<0.045 {credit+=dt}
         else {credit=max(0,credit-dt*0.5)}
-        // AE routinely keeps adjusting under fluorescent lights. Only AF gates
-        // capture, with a bounded wait instead of resetting the accumulated hold.
+        // Exposure may fluctuate, but active autofocus never times out into capture.
         focusTime=focusing ? focusTime+dt:0
-        ready=armed && credit>=0.65 && (!focusing || focusTime>=0.9)
+        ready=armed && credit>=0.65 && !focusing
         return ready
     }
 }
@@ -634,7 +633,7 @@ enum EdgeBand {
 enum PDFCompression:String,CaseIterable,Identifiable {
     case original="Максимальна якість",balanced="Збалансовано",small="Малий файл"
     var id:String {rawValue}
-    var pixelLimit:Int {switch self {case .original:return 3000;case .balanced:return 2200;case .small:return 1500}}
+    var pixelLimit:Int {switch self {case .original:return 4096;case .balanced:return 2200;case .small:return 1500}}
     var jpegQuality:Double {switch self {case .original:return 0.94;case .balanced:return 0.78;case .small:return 0.6}}
     var detail:String {
         switch self {
@@ -795,5 +794,63 @@ enum PaperLighting {
             }
         }
         return output
+    }
+}
+
+
+// Relative edge acutance, not raw Laplacian variance: broad blurred edges
+// must not pass just because text is dark. Inspect several interior patches.
+struct TextDetail {
+    let acutance:Double
+    let patches:Int
+    var clear:Bool {patches>=2 && acutance>=0.42}
+    static func measure(_ gray:[UInt8],width:Int,height:Int,quad:Quad)->TextDetail {
+        guard width>=32,height>=32,gray.count==width*height,quad.valid else {return TextDetail(acutance:0,patches:0)}
+        let xs=quad.points.map {$0.x},ys=quad.points.map {$0.y}
+        let left=xs.min() ?? 0,right=xs.max() ?? 1,top=ys.min() ?? 0,bottom=ys.max() ?? 1
+        var scores:[Double]=[],centralScores:[Double]=[]
+        for row in 0..<5 {for column in 0..<5 {
+            let u=left+(right-left)*(0.12+Double(column)*0.15)
+            let v=top+(bottom-top)*(0.12+Double(row)*0.15)
+            let du=(right-left)*0.12,dv=(bottom-top)*0.12
+            let corners=[Point(x:u,y:v),Point(x:u+du,y:v),Point(x:u,y:v+dv),Point(x:u+du,y:v+dv)]
+            guard corners.allSatisfy({CropSafety.contains($0,in:quad,tolerance:0)}) else {continue}
+            let x0=max(1,Int(u*Double(width))),x1=min(width-1,Int((u+du)*Double(width)))
+            let y0=max(1,Int(v*Double(height))),y1=min(height-1,Int((v+dv)*Double(height)))
+            guard x1>x0,y1>y0 else {continue}
+            var lap=0.0,gradient=0.0,count=0
+            for y in y0..<y1 {for x in x0..<x1 {
+                let i=y*width+x
+                let c=Int(gray[i]),l=Int(gray[i-1]),r=Int(gray[i+1]),t=Int(gray[i-width]),b=Int(gray[i+width])
+                let edge=abs(r-l)+abs(b-t)
+                if edge>18 {lap+=Double(abs(4*c-l-r-t-b));gradient+=Double(edge);count+=1}
+            }}
+            if count>=30 && gradient>0 {
+                let value=lap/gradient;scores.append(value)
+                if row>=1 && row<=3 && column>=1 && column<=3 {centralScores.append(value)}
+            }
+        }}
+        scores.sort()
+        var middle=scores.isEmpty ? 0:scores[scores.count/2]
+        centralScores.sort()
+        if centralScores.count>=2 {middle=min(middle,centralScores[centralScores.count/2])}
+        return TextDetail(acutance:middle,patches:scores.count)
+    }
+}
+
+// A quiet lens is necessary, but not sufficient: require readable edge detail
+// in consecutive fresh frames as well. No deadline bypasses either condition.
+struct FocusQualityHold {
+    private var lens:Float?
+    private var previousTime:Double?
+    private var credit=0.0
+    mutating func reset() {lens=nil;previousTime=nil;credit=0}
+    mutating func update(position:Float,adjusting:Bool,detail:TextDetail,time:Double)->Bool {
+        let gap=time-(previousTime ?? time)
+        let moved=lens.map {abs($0-position)>0.004} ?? true
+        lens=position;previousTime=time
+        if adjusting || moved || !detail.clear || gap>0.6 || gap<0 {credit=0;return false}
+        credit+=min(0.3,max(0,gap))
+        return credit>=0.4
     }
 }

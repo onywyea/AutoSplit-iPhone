@@ -26,6 +26,7 @@ struct Leaf: Codable, Identifiable {
     var text = ""
     var note = "Очікує обробки"
     var ocrReady = false
+    var reviewed:Bool? = nil
 }
 struct CleanupStroke: Codable, Equatable {
     var points: [Point]
@@ -53,10 +54,10 @@ enum Disk {
     static func url(_ name: String) -> URL { root.appendingPathComponent(name) }
     static func writeImage(_ image: UIImage) throws -> String {
         let name=UUID().uuidString+".jpg"
-        guard let bytes=image.jpegData(compressionQuality:0.94) else { throw ScanError.message("Не вдалося записати сторінку") }
+        guard let bytes=image.jpegData(compressionQuality:0.97) else { throw ScanError.message("Не вдалося записати сторінку") }
         try bytes.write(to:url(name),options:[.atomic,.completeFileProtection]); return name
     }
-    static func image(_ name: String, limit: Int = 3000) -> UIImage? {
+    static func image(_ name: String, limit: Int = 4096) -> UIImage? {
         guard let source=CGImageSourceCreateWithURL(url(name) as CFURL,nil),
               let cg=CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceThumbnailMaxPixelSize:limit,kCGImageSourceCreateThumbnailWithTransform:true] as CFDictionary) else { return nil }
         return UIImage(cgImage:cg)

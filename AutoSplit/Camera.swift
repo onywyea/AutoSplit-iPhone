@@ -30,6 +30,14 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     private var capturing=false
     private var lastTime=Date.distantPast
     private var tracker=CaptureStability()
+    private var qualityHold=FocusQualityHold()
+    private var qualityReadyAt=Date.distantPast
+    private var readyLensPosition:Float=0
+    private var readyDeviceID=""
+    @Published var focusStatus="Перевіряю фокус…"
+    @Published var focusReady=false
+    @Published var focusLocked=false
+    @Published var qualityWarning=false
     private var lastSegmentation=Date.distantPast
     private var runningWanted=false
     private let imageContext=CIContext()
@@ -86,6 +94,8 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                         }
                         self.session.commitConfiguration(); self.configured=true
                     }
+                    self.captureAllowedAfter=Date().addingTimeInterval(0.7)
+                    self.frames.async {self.qualityHold.reset();self.tracker.resetStability()}
                     self.session.startRunning()
                     self.publishLenses()
                 } catch {
@@ -155,7 +165,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                     UserDefaults.standard.set(id,forKey:"scanflow.cameraLens")
                     self.captureAllowedAfter=Date().addingTimeInterval(0.8)
                     self.frames.async {
-                        self.tracker=CaptureStability();self.lastSegmentation = .distantPast
+                        self.tracker=CaptureStability();self.qualityHold.reset();self.lastSegmentation = .distantPast
                         self.ignoreFramesUntil=Date().addingTimeInterval(0.8)
                         DispatchQueue.main.async {self.detected=false;self.detectedQuad=nil}
                     }
@@ -209,7 +219,10 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                 if device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
                 if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
                 device.unlockForConfiguration()
-                self.frames.async {self.tracker.resetStability()}
+                self.captureAllowedAfter=Date().addingTimeInterval(0.6)
+                self.processingLock.lock();self.qualityReadyAt = .distantPast;self.processingLock.unlock()
+                self.frames.async {self.tracker.resetStability();self.qualityHold.reset()}
+                DispatchQueue.main.async {self.focusReady=false;self.focusStatus="Фокусуюся…"}
             } catch {}
         }
     }
@@ -219,9 +232,32 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             self.tracker.didCapture()
         }
     }
-    func shoot() {
+    func shoot(automatic:Bool=false,allowUnverified:Bool=false) {
         queue.async {
             guard self.configured,self.session.isRunning,!self.capturing,!self.processingNow,Date()>=self.captureAllowedAfter else { return }
+            self.processingLock.lock()
+            let recent=Date().timeIntervalSince(self.qualityReadyAt)<0.6
+            let checkedPosition=self.readyLensPosition,checkedDeviceID=self.readyDeviceID
+            self.processingLock.unlock()
+            guard let device=self.camera else {return}
+            let checked=recent && checkedDeviceID==device.uniqueID && !device.isAdjustingFocus && abs(device.lensPosition-checkedPosition)<=0.004
+            guard checked || (!automatic && allowUnverified) else {
+                if !automatic {DispatchQueue.main.async {self.qualityWarning=true}}
+                return
+            }
+            do {
+                // Freeze a verified focus position through the photo exposure.
+                // This is a real hardware mode, not a green timer indicator.
+                if checked && device.isFocusModeSupported(.locked) {
+                    try device.lockForConfiguration()
+                    if device.isAdjustingFocus || abs(device.lensPosition-checkedPosition)>0.004 {
+                        device.unlockForConfiguration();return
+                    }
+                    device.focusMode = .locked
+                    device.unlockForConfiguration()
+                    DispatchQueue.main.async {self.focusLocked=true;self.focusStatus="Фокус зафіксовано · знімаю"}
+                }
+            } catch {DispatchQueue.main.async {self.message="Не вдалося зафіксувати фокус"};return}
             self.capturing=true
             DispatchQueue.main.async { self.shooting=true }
             let settings=AVCapturePhotoSettings()
@@ -236,7 +272,16 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     func photoOutput(_ output:AVCapturePhotoOutput,didFinishProcessingPhoto photo:AVCapturePhoto,error:Error?) {
         defer {
             pauseDetectionAfterShot()
-            queue.async { self.capturing=false }
+            queue.async {
+                if let device=self.camera,device.isFocusModeSupported(.continuousAutoFocus) {
+                    do {try device.lockForConfiguration();device.focusMode = .continuousAutoFocus;device.unlockForConfiguration()}
+                    catch {DispatchQueue.main.async {self.message="Торкніться тексту, щоб повторити фокусування"}}
+                }
+                self.processingLock.lock();self.qualityReadyAt = .distantPast;self.processingLock.unlock()
+                self.frames.async {self.qualityHold.reset()}
+                self.capturing=false
+                DispatchQueue.main.async {self.focusLocked=false;self.focusReady=false;self.focusStatus="Перевіряю фокус…"}
+            }
             DispatchQueue.main.async { self.shooting=false }
         }
         if let error { DispatchQueue.main.async { self.message=error.localizedDescription }; return }
@@ -303,13 +348,31 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                 return score(a)<score(b)
             }?.0
             let signature=frameSignature(buffer)
-            let ready=tracker.update(candidate,signature:signature,time:now.timeIntervalSinceReferenceDate,focusing:focusAdjusting)
+            processingLock.lock();let device=camera;processingLock.unlock()
+            let adjusting=device?.isAdjustingFocus ?? true
+            let position=device?.lensPosition ?? 0
+            var gray=[UInt8](repeating:0,count:cg.width*cg.height)
+            let decoded=gray.withUnsafeMutableBytes {raw -> Bool in
+                guard let context=CGContext(data:raw.baseAddress,width:cg.width,height:cg.height,bitsPerComponent:8,bytesPerRow:cg.width,space:CGColorSpaceCreateDeviceGray(),bitmapInfo:0) else {return false}
+                context.draw(cg,in:CGRect(x:0,y:0,width:cg.width,height:cg.height));return true
+            }
+            let detail=TextDetail.measure(decoded ? gray:[],width:cg.width,height:cg.height,quad:candidate ?? .full)
+            let quality=qualityHold.update(position:position,adjusting:adjusting || candidate==nil,detail:detail,time:now.timeIntervalSinceReferenceDate)
+            let ready=tracker.update(candidate,signature:signature,time:now.timeIntervalSinceReferenceDate,focusing:!quality)
             let quad=tracker.quad
+            processingLock.lock()
+            qualityReadyAt=quality ? now:.distantPast;readyLensPosition=position;readyDeviceID=device?.uniqueID ?? ""
+            processingLock.unlock()
+            let focusText:String
+            if adjusting {focusText="Фокусуюся…"}
+            else if detail.patches<2 {focusText="Не можу перевірити текст · торкніться тексту"}
+            else if !detail.clear {focusText="Текст нечіткий · тримайте рівно або відсуньте камеру"}
+            else {focusText=quality ? "Фокус стабільний · текст перевірено":"Перевіряю чіткість…"}
             let aspect=CGFloat(CVPixelBufferGetWidth(buffer))/CGFloat(CVPixelBufferGetHeight(buffer))
             let text = quad == nil ? "У кадрі має бути весь аркуш · можна зняти вручну" :
                 (auto ? (tracker.armed ? "Аркуш знайдено · готую знімок…":"Перегорніть або заберіть аркуш") : "Аркуш знайдено")
-            DispatchQueue.main.async {self.detected=quad != nil;self.detectedQuad=quad;self.frameAspect=aspect;self.message=text}
-            if auto && ready {tracker.didCapture();shoot()}
+            DispatchQueue.main.async {self.detected=quad != nil;self.detectedQuad=quad;self.frameAspect=aspect;self.message=text;self.focusReady=quality;self.focusStatus=focusText}
+            if auto && ready {shoot(automatic:true)}
         } catch {DispatchQueue.main.async {self.message="Зніміть вручну кнопкою внизу"}}
     }
 
@@ -410,7 +473,7 @@ struct CaptureView:View {
                     Button {auto.toggle()} label:{Label(auto ? "Авто":"Вручну",systemImage:auto ? "viewfinder.circle.fill":"viewfinder").font(.subheadline.weight(.semibold))}
                     Button {engine.toggleFlash()} label:{Image(systemName:engine.flashEnabled && engine.flashSupported ? "bolt.fill":"bolt.slash.fill").foregroundStyle(engine.flashEnabled && engine.flashSupported ? Color.yellow:.white)}.disabled(!engine.flashSupported || waiting).accessibilityLabel("Спалах")
                     Button {exposure.toggle()} label:{Image(systemName:"sun.max")}.accessibilityLabel("Яскравість фото")
-                }.font(.title3).padding(.horizontal,18)
+                }.font(.title3).padding(12).scanGlass().padding(.horizontal,16)
                 CameraLensPicker(engine:engine,disabled:waiting).padding(.horizontal,22)
                 if exposure {
                     HStack {
@@ -421,6 +484,10 @@ struct CaptureView:View {
                     }.padding(14).background(.black.opacity(0.55),in:RoundedRectangle(cornerRadius:18)).padding(.horizontal,22)
                 }
                 Spacer()
+                Label(engine.focusStatus,systemImage:engine.focusLocked ? "lock.fill":(engine.focusReady ? "checkmark.viewfinder":"viewfinder"))
+                    .font(.caption.weight(.semibold)).foregroundStyle(engine.focusReady || engine.focusLocked ? Color.mint:Color.yellow)
+                    .multilineTextAlignment(.center).padding(10).background(.black.opacity(0.65),in:Capsule())
+                    .accessibilityLabel(engine.focusStatus)
                 Text(engine.message).font(.subheadline.weight(.medium)).multilineTextAlignment(.center).padding(.horizontal,16).padding(.vertical,9).background(.black.opacity(0.5),in:Capsule())
                 HStack {
                     Button {reviewing=true} label: {
@@ -443,7 +510,11 @@ struct CaptureView:View {
                     }
                 }.padding(.bottom,12)
             }.foregroundStyle(.white)
-        }.background(.black)
+        }.background(.black).preferredColorScheme(.dark)
+        .alert("Чіткість ще не підтверджено",isPresented:$engine.qualityWarning) {
+            Button("Продовжити фокусування",role:.cancel) {}
+            Button("Зняти вручну") {engine.shoot(allowUnverified:true)}
+        } message: {Text("Торкніться тексту та зачекайте зеленого індикатора. Ручний знімок збереже кадр без підтвердження чіткості.")}
         .onAppear {
             visible=true
             if previousIdleTimer==nil {previousIdleTimer=UIApplication.shared.isIdleTimerDisabled}

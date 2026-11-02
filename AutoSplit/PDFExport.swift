@@ -28,7 +28,7 @@ struct PDFExportSheet:View {
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
     let ids:Set<UUID>
-    @State private var compression:PDFCompression = .balanced
+    @State private var compression:PDFCompression = .original
     @State private var sharing=false
     var count:Int {store.documents.filter{ids.contains($0.id)}.reduce(0){$0+$1.pages.count}}
     var body:some View {

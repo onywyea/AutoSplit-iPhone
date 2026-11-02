@@ -14,6 +14,8 @@ struct DocumentStyleSheet:View {
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
     let documentID:UUID
+    var pageIDs:Set<UUID>?=nil
+    private var targetCount:Int {store.document(documentID)?.pages.filter {pageIDs?.contains($0.id) ?? true}.count ?? 0}
     @State private var selected=Finish.white
     @State private var applying=false
     var body:some View {
@@ -32,7 +34,7 @@ struct DocumentStyleSheet:View {
                             }.padding(.vertical,5)
                         }.disabled(applying)
                     }
-                } header:{Text("Стиль усього документа")} footer:{Text("Обробка виконується з оригіналів. Межі, ручний поворот і порядок сторінок зберігаються. Нові сторінки цього документа отримають вибраний стиль.")}
+                } header:{Text(pageIDs==nil ? "Стиль усього документа":"Стиль вибраних сторінок")} footer:{Text(pageIDs==nil ? "Обробка з оригіналів. Нові сторінки отримають цей стиль.":"Зміняться лише вибрані сторінки. Стиль нових сторінок не змінюється.")}
                 if applying {
                     Section {
                         HStack {ProgressView();Text(store.status)}
@@ -40,10 +42,10 @@ struct DocumentStyleSheet:View {
                     }
                 } else {
                     Section {
-                        Button("Застосувати до всіх сторінок · \(store.document(documentID)?.pages.count ?? 0)") {
+                        Button("Застосувати · \(targetCount) стор.") {
                             applying=true
                             Task {
-                                let completed=await store.applyStyle(selected,to:documentID)
+                                let completed=await store.applyStyle(selected,to:documentID,pageIDs:pageIDs)
                                 applying=false
                                 if completed {dismiss()}
                             }

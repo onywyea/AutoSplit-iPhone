@@ -21,10 +21,32 @@ struct LibraryView:View {
     @State private var exporting=false
     @State private var deleting=false
     @State private var renaming:ScanDocument?
+    @State private var importing=false
+    @State private var newCapture:UUID?
+    @AppStorage("scanflow.lastDocument") private var lastDocument=""
+    var resume:ScanDocument? {
+        store.documents.first(where:{$0.id.uuidString==lastDocument && !$0.pages.isEmpty}) ?? store.documents.first(where:{!$0.pages.isEmpty && $0.pages.contains(where:{$0.reviewReason != nil})})
+    }
     var filtered:[ScanDocument] {store.documents.filter{search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)}}
     var body:some View {
         NavigationStack(path:$path) {
             List {
+                if !selecting && search.isEmpty {
+                    Section {
+                        HStack(spacing:12) {ScanMark();VStack(alignment:.leading,spacing:3) {Text("ScanFlow").font(.headline);Text("Скануйте серією. Перевіряйте вибірково.").font(.caption).foregroundStyle(.secondary)}}.padding(.vertical,4)
+                    }.listRowBackground(Color.clear)
+                    if let doc=resume {
+                        Section("Продовжити комплект") {
+                            Button {path.append(doc.id)} label:{
+                                VStack(alignment:.leading,spacing:9) {
+                                    Text(doc.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
+                                    Text("\(doc.pages.count) стор. · \(doc.pages.filter {$0.reviewReason != nil}.count) до перевірки").font(.caption).foregroundStyle(.secondary)
+                                    Label("Продовжити перевірку",systemImage:"arrow.right.circle.fill").font(.subheadline.weight(.semibold))
+                                }.padding(.vertical,6)
+                            }.disabled(store.busy)
+                        }
+                    }
+                }
                 if filtered.isEmpty {
                     ContentUnavailableView(search.isEmpty ? "Поки немає сканів":"Нічого не знайдено",systemImage:search.isEmpty ? "doc.viewfinder":"magnifyingglass",description:Text(search.isEmpty ? "Скануйте камерою або імпортуйте PDF і фото.":"Спробуйте іншу назву."))
                         .listRowBackground(Color.clear)
@@ -48,8 +70,8 @@ struct LibraryView:View {
                 }
             }
             .listStyle(.insetGrouped).scrollContentBackground(.hidden).background(Color.canvas)
-            .navigationTitle("Скани")
-            .searchable(text:$search,prompt:"Назва документа")
+            .navigationTitle("Документи")
+            .searchable(text:$search,prompt:"ПІБ або назва документа")
             .toolbar {
                 ToolbarItem(placement:.topBarTrailing) {
                     Button(selecting ? "Готово":"Вибрати"){selecting.toggle();selected=[]}.disabled(store.busy || store.documents.isEmpty)
@@ -59,7 +81,17 @@ struct LibraryView:View {
                 }
             }
             .safeAreaInset(edge:.bottom) {bottomBar}
-            .navigationDestination(for:UUID.self){id in DocumentView(documentID:id)}
+            .navigationDestination(for:UUID.self){id in DocumentView(documentID:id,startCamera:newCapture==id)}
+            .onChange(of:path){_,ids in if let id=ids.last {lastDocument=id.uuidString}else{newCapture=nil}}
+            .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true) {result in
+                switch result {
+                case .success(let urls):
+                    guard !urls.isEmpty else {return}
+                    let id=store.newDocument();path.append(id)
+                    Task {await store.importFiles(urls,to:id);await store.analyze(id)}
+                case .failure(let error):store.error=error.localizedDescription
+                }
+            }
             .sheet(isPresented:$handingOff){HandoffView(ids:selected)}
             .sheet(isPresented:$exporting){PDFExportSheet(ids:selected)}
             .sheet(item:$renaming){doc in NameSheet(documentID:doc.id)}
@@ -98,113 +130,18 @@ struct LibraryView:View {
                     } label:{Label("Експорт",systemImage:"square.and.arrow.up").font(.subheadline.weight(.semibold))}
                 }.frame(minHeight:44).disabled(selected.isEmpty || store.busy)
             } else {
-                Button{path.append(store.newDocument())}label:{Label("Новий скан",systemImage:"plus").font(.headline).frame(maxWidth:.infinity,minHeight:44)}
+                HStack(spacing:12) {
+                Button {importing=true} label:{Image(systemName:"square.and.arrow.down").frame(width:44,height:44)}.accessibilityLabel("Імпорт фото або PDF").disabled(store.busy)
+                Button{let id=store.newDocument();newCapture=id;path.append(id)}label:{Label("Новий скан",systemImage:"camera").font(.headline).frame(maxWidth:.infinity,minHeight:44)}
                     .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius:16)).disabled(store.busy)
+                }
             }
-        }.padding(.horizontal,20).padding(.vertical,8).background(Color.canvas.ignoresSafeArea(edges:.bottom))
+        }.padding(12).scanGlass().padding(.horizontal,16).padding(.vertical,8)
     }
 }
 struct Thumb:View {
     let file:String?
     var body:some View {CachedScanThumbnail(file:file)}
-}
-struct DocumentView:View {
-    @EnvironmentObject var store:ScannerStore
-    @Environment(\.dismiss) private var dismiss
-    let documentID:UUID
-    @State private var capturing=false
-    @State private var importing=false
-    @State private var sharing=false
-    @State private var naming=false
-    @State private var handoff=false
-    @State private var styling=false
-    @State private var originals=false
-    @State private var deleting=false
-    @State private var editMode:EditMode = .inactive
-    var doc:ScanDocument? {store.document(documentID)}
-    var body:some View {
-        Group {
-            if let doc {
-                List {
-                    Section {
-                        VStack(alignment:.leading,spacing:10) {
-                            Text(doc.title).font(.title2.weight(.bold))
-                            HStack {Label("\(doc.pages.count) сторінок",systemImage:"doc.on.doc");Spacer();Button("Змінити назву"){naming=true}}.font(.caption)
-                            if !doc.candidates.isEmpty && !doc.nameConfirmed {
-                                Button {naming=true} label:{Label("Знайдено ПІБ · вибрати назву",systemImage:"person.text.rectangle")}.font(.subheadline)
-                            }
-                        }.padding(.vertical,12)
-                    }.listRowBackground(Color.clear).listRowInsets(EdgeInsets(top:0,leading:0,bottom:0,trailing:0))
-                    if store.busy {
-                        Section { HStack{ProgressView();Text(store.status).font(.subheadline)};Button("Зупинити після сторінки"){store.cancel()} }
-                    }
-                    if doc.pages.isEmpty {
-                        Section {
-                            VStack(spacing:14){Image(systemName:"viewfinder").font(.system(size:48,weight:.ultraLight)).foregroundStyle(Color.accent);Text("Додайте першу сторінку").font(.headline);Text("Камера зберігає кожну сторінку окремо. Кількість сторінок не обмежена налаштуваннями програми.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)}.frame(maxWidth:.infinity).padding(.vertical,32)
-                        }
-                    }
-                    Section {
-                        ForEach(Array(doc.pages.enumerated()),id:\.element.id) { n,leaf in
-                            NavigationLink {PageBrowser(documentID:documentID,initialPageID:leaf.id)} label:{
-                                HStack(spacing:16) {
-                                    Thumb(file:leaf.output).frame(width:56,height:76).clipShape(RoundedRectangle(cornerRadius:9))
-                                    VStack(alignment:.leading,spacing:8) {
-                                        Text("Сторінка \(n+1)").font(.headline)
-                                        if leaf.ocrReady && leaf.note.isEmpty {Label("Готова",systemImage:"checkmark.circle").font(.caption).foregroundStyle(Color.accent)}
-                                        else{Text(leaf.note).font(.caption).foregroundStyle(.secondary).lineLimit(2)}
-                                        
-                                    }
-                                }.padding(.vertical,6)
-                            }
-                        }
-                        .onDelete { offsets in for n in offsets {store.deletePage(documentID,doc.pages[n].id)} }
-                        .onMove {store.movePages(documentID,from:$0,to:$1)}
-                    } header: {if !doc.pages.isEmpty{Text("Сторінки")}}
-                    if !doc.pages.isEmpty {
-                        Section {
-                            Button {styling=true} label:{Label("Стиль усіх сторінок",systemImage:"slider.horizontal.3")}.disabled(store.busy)
-                            Button {Task{await store.analyze(documentID,force:true)}} label:{Label("Очистити, повернути та визначити ПІБ",systemImage:"wand.and.stars")}.disabled(store.busy)
-                            Button {handoff=true} label:{Label("Підготувати завдання для ChatGPT",systemImage:"sparkles")}.disabled(store.busy)
-                            Button {sharing=true} label:{Label("Зберегти або поділитися PDF",systemImage:"square.and.arrow.up")}.disabled(store.busy)
-                        } footer:{Text("Назва за ПІБ — пропозиція з OCR. Якщо в документі кілька людей, виберіть потрібну. Перевірте краї й текст перед передачею.")}
-                    }
-                }
-                .scrollContentBackground(.hidden).background(Color.canvas)
-                .safeAreaInset(edge:.bottom) {
-                    HStack(spacing:12) {
-                        Button{importing=true}label:{Image(systemName:"square.and.arrow.down").font(.title3).frame(width:44,height:44)}.buttonStyle(.bordered)
-                        Button{capturing=true}label:{Label(doc.pages.isEmpty ? "Сканувати" : "Додати сторінки",systemImage:"camera").font(.headline).frame(maxWidth:.infinity,minHeight:44)}.buttonStyle(.borderedProminent)
-                    }.padding(.horizontal,22).padding(.vertical,10).background(Color.canvas.ignoresSafeArea(edges:.bottom)).disabled(store.busy)
-                }
-            } else{ContentUnavailableView("Скан недоступний",systemImage:"doc")}
-        }
-        .task(id:documentID) {Task {await store.ensureEdgeProcessing(documentID)}}
-        .onChange(of:store.busy) {_,busy in
-            if !busy && store.error==nil && !store.status.hasPrefix("Зуп") {Task {await store.ensureEdgeProcessing(documentID)}}
-        }
-        .environment(\.editMode,$editMode)
-        .navigationTitle("Документ").navigationBarTitleDisplayMode(.inline).toolbar(.visible,for:.navigationBar)
-        .toolbar {
-            ToolbarItem(placement:.topBarTrailing){
-                Button(editMode == .active ? "Готово":"Порядок"){withAnimation{editMode = editMode == .active ? .inactive:.active}}.disabled(store.busy || (doc?.pages.isEmpty ?? true))
-            }
-            ToolbarItem(placement:.topBarTrailing){Button{sharing=true}label:{Image(systemName:"square.and.arrow.up")}.disabled(store.busy || (doc?.pages.isEmpty ?? true)).accessibilityLabel("Експорт і стиснення PDF")}
-            ToolbarItem(placement:.topBarTrailing){Menu{Button("Експорт оригіналів фото"){originals=true};Button("Обробити краї всіх сторінок"){Task{await store.ensureEdgeProcessing(documentID,force:true)}};Button("Відновити з оригіналів і обробити заново"){Task{await store.rebuildSafely(documentID)}};Button("Повторити автоповорот усіх сторінок"){Task{await store.rotateAutomatically(documentID)}};Button("Видалити скан",role:.destructive){deleting=true}}label:{Image(systemName:"ellipsis.circle")}.disabled(store.busy)}
-        }
-        .fullScreenCover(isPresented:$capturing,onDismiss:{Task{await store.analyze(documentID)}}){CaptureView(documentID:documentID)}
-        .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true){result in
-            switch result {
-            case .success(let urls):Task{await store.importFiles(urls,to:documentID);await store.analyze(documentID)}
-            case .failure(let error):store.error=error.localizedDescription
-            }
-        }
-        .sheet(isPresented:$sharing){PDFExportSheet(ids:[documentID])}
-        .sheet(isPresented:$naming){NameSheet(documentID:documentID)}
-        .sheet(isPresented:$handoff){HandoffView(ids:[documentID])}
-        .sheet(isPresented:$styling){DocumentStyleSheet(documentID:documentID)}
-        .sheet(isPresented:$originals){OriginalsExportSheet(documentID:documentID)}
-        .confirmationDialog("Видалити скан зі списку?",isPresented:$deleting,titleVisibility:.visible){Button("Видалити",role:.destructive){store.deleteDocument(documentID);dismiss()}}
-    }
 }
 struct NameSheet:View {
     @EnvironmentObject var store:ScannerStore

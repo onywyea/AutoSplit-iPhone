@@ -18,6 +18,7 @@ struct PageEditor:View {
     @State private var previewStatus=""
     @State private var previewDebounce:Task<Void,Never>?
     @State private var showingOriginal=false
+    @State private var dirty=false
     var body:some View {
         ScrollView {
             VStack(spacing:20) {
@@ -25,9 +26,10 @@ struct PageEditor:View {
                     Image(uiImage:image).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius:18)).padding(.horizontal)
                 }
                 if rendering {HStack{ProgressView();Text("Оновлення перегляду…").font(.caption).foregroundStyle(.secondary)}}
+                else {Label(dirty ? "Є незбережені зміни":"Зміни зберігаються автоматично",systemImage:dirty ? "clock":"checkmark.circle").font(.caption).foregroundStyle(.secondary)}
                 HStack(spacing:28) {
                     tool("Кути","crop.rotate") { cropping=true }
-                    tool("Повернути","rotate.right") { leaf.turns=(leaf.turns+1)%4;leaf.manualTurns=leaf.turns;refresh() }
+                    tool("Повернути","rotate.right") { leaf.turns=(leaf.turns+1)%4;leaf.manualTurns=leaf.turns;dirty=true;refresh() }
                     tool(showingOriginal ? "Результат" : "Оригінал","square.on.square") { showingOriginal.toggle() }
                 }
                 Button {cleaning=true} label: {Label("Прибрати фон пензлем",systemImage:"eraser").font(.subheadline.weight(.medium))}
@@ -64,7 +66,7 @@ struct PageEditor:View {
         }
         .background(Color.canvas).navigationTitle("Сторінка").navigationBarTitleDisplayMode(.inline).toolbar(.visible,for:.navigationBar)
         .toolbar { ToolbarItem(placement:.topBarTrailing) {
-            Button("Зберегти") { Task { await store.updatePage(documentID,leaf);if store.error == nil { dismiss() } } }.fontWeight(.semibold).disabled(store.busy || rendering)
+            Button("Готово") { Task {if dirty {await store.updatePage(documentID,leaf)};if store.error == nil {dismiss()}} }.fontWeight(.semibold).disabled(store.busy || rendering)
         } }
         .task {
             async let source=ScanImageLoader.shared.image(leaf.original,limit:2400)
@@ -74,16 +76,17 @@ struct PageEditor:View {
             if preview==nil {preview=loaded}
             if beginCrop && !didShowInitialCrop {didShowInitialCrop=true;cropping=true}else{refresh()}
         }
-        .onChange(of:leaf.finish){_,_ in refresh()}.onChange(of:leaf.edgeFill){_,_ in refresh()}
-        .onChange(of:leaf.edgeReach){_,_ in queuePreview()}
-        .onChange(of:leaf.edgeOverlap){_,_ in queuePreview()}
+        .onChange(of:leaf.finish){_,_ in dirty=true;refresh()}.onChange(of:leaf.edgeFill){_,_ in dirty=true;refresh()}
+        .onChange(of:leaf.edgeReach){_,_ in dirty=true;queuePreview()}
+        .onChange(of:leaf.edgeOverlap){_,_ in dirty=true;queuePreview()}
+        .interactiveDismissDisabled(dirty || (store.busy && rendering))
         .onDisappear{previewDebounce?.cancel()}
         .sheet(isPresented:$cropping) {
-            CornerEditor(file:leaf.original,initial:leaf.quad ?? .full) { q in leaf.quad=q;leaf.manualCrop=true;leaf.cropVerified=true;refresh() }
+            CornerEditor(file:leaf.original,initial:leaf.quad ?? .full) { q in leaf.quad=q;leaf.manualCrop=true;leaf.cropVerified=true;dirty=true;refresh() }
         }
         .sheet(isPresented:$cleaning) {
             CleanupEditor(file:leaf.original,initial:leaf.cleanupStrokes ?? [],automatic:false,reference:leaf) { strokes in
-                leaf.cleanupStrokes=strokes;refresh()
+                leaf.cleanupStrokes=strokes;dirty=true;refresh()
             }
         }
         .sheet(isPresented:Binding(get:{textImage != nil},set:{if !$0 {textImage=nil}})) {
@@ -112,6 +115,10 @@ struct PageEditor:View {
                 let result=try await Task.detached(priority:.userInitiated) {try autoreleasepool{try Imaging.renderWithEdgeReport(item)}}.value
                 if generation==version {
                     preview=result.image;showingOriginal=false
+                    if dirty {
+                        let saved=await store.saveRenderedPage(documentID,leaf:item,image:result.image,changed:result.changed)
+                        if saved && generation==version {dirty=false}
+                    }
                     previewStatus = !item.edgeFill ? "Очищення вимкнено":(result.changed==0 ? "Фон не знайдено — уточніть кути або скористайтесь пензлем":"Край оновлено · замінено \(result.changed) пікселів")
                 }
             } catch {store.error=error.localizedDescription}

@@ -280,7 +280,7 @@ check(captureTracker.quad==nil && captureTracker.armed,"removing the sheet rearm
 var focusTracker=CaptureStability()
 var focusedCapture=false
 for step in 0...9 {focusedCapture=focusTracker.update(trackingQuad,signature:cameraSignature,time:Double(step)*0.21,focusing:true) || focusedCapture}
-check(focusedCapture,"continuous autofocus cannot stall capture indefinitely")
+check(!focusedCapture,"active autofocus never times out into capture")
 var shakyTracker=CaptureStability()
 for step in 0...12 {
     check(!shakyTracker.update(shiftedQuad(step%2==0 ? 0:0.15),signature:cameraSignature,time:Double(step)*0.21,focusing:false),"large movement must not auto capture")
@@ -326,3 +326,36 @@ for pixel in 0..<(lw*lh) {
 check(lightOnly && alphaExact,"lighting does not add dark halos or alter alpha")
 check(PaperLighting.correct([0,1,2],width:120,height:160)==[0,1,2],"invalid lighting buffer is rejected")
 print("All \(passed) checks including local paper lighting passed")
+
+var qualityHold=FocusQualityHold()
+let sharpDetail=TextDetail(acutance:0.7,patches:6),blurredDetail=TextDetail(acutance:0.2,patches:6)
+check(!qualityHold.update(position:0.5,adjusting:false,detail:sharpDetail,time:0),"first lens reading cannot confirm focus")
+check(!qualityHold.update(position:0.5,adjusting:false,detail:sharpDetail,time:0.21),"focus needs consecutive quiet frames")
+check(qualityHold.update(position:0.5,adjusting:false,detail:sharpDetail,time:0.42),"quiet lens and clear detail become ready")
+check(!qualityHold.update(position:0.5,adjusting:true,detail:sharpDetail,time:0.63),"active autofocus invalidates quality")
+check(!qualityHold.update(position:0.5,adjusting:false,detail:blurredDetail,time:0.84),"blurred detail cannot confirm focus")
+check(!qualityHold.update(position:0.5,adjusting:false,detail:sharpDetail,time:2),"stale frames cannot confirm focus")
+check(!TextDetail.measure([UInt8](repeating:220,count:120*160),width:120,height:160,quad:.full).clear,"blank paper is not proof of sharp text")
+print("All \(passed) checks including focus quality passed")
+
+qualityHold.reset()
+_ = qualityHold.update(position:0.5,adjusting:false,detail:sharpDetail,time:0)
+_ = qualityHold.update(position:0.5,adjusting:false,detail:sharpDetail,time:0.21)
+check(!qualityHold.update(position:0.52,adjusting:false,detail:sharpDetail,time:0.42),"lens movement invalidates a quiet hardware flag")
+check(!qualityHold.update(position:0.52,adjusting:false,detail:TextDetail(acutance:0.9,patches:1),time:0.63),"single sharp patch is insufficient")
+var edgeChart=[UInt8](repeating:230,count:120*160)
+for y in 0..<160 {for x in 0..<120 {if y%16<8 && x%8<3 {edgeChart[y*120+x]=40}}}
+let clearChart=TextDetail.measure(edgeChart,width:120,height:160,quad:.full)
+var blurredChart=edgeChart
+for _ in 0..<5 {
+    let previous=blurredChart
+    for y in 1..<159 {for x in 1..<119 {
+        var sum=0
+        for dy in -1...1 {for dx in -1...1 {sum+=Int(previous[(y+dy)*120+x+dx])}}
+        blurredChart[y*120+x]=UInt8(sum/9)
+    }}
+}
+let softChart=TextDetail.measure(blurredChart,width:120,height:160,quad:.full)
+check(clearChart.clear && !softChart.clear,"sharp text-like strokes pass; broadened strokes fail")
+check(PDFCompression.original.pixelLimit==4096,"maximum-quality loading retains new capture detail")
+print("All \(passed) checks including detail chart passed")
