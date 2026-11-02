@@ -236,3 +236,39 @@ var faintRed=cleanPaper
 for c in 0..<3 {faintRed[(ph/2*pw+9)*4+c]=[UInt8(185),125,125][c]}
 check(PaperRaster.overlap(faintRed,width:pw,height:ph,mask:borderMask,radius:24)[ph/2*pw+9]==0,"faint red print on paper survives the feather")
 print("All \(passed) core/rotation/edge/export/color/halo/stamp/residue checks passed")
+
+let trackingQuad=Quad(points:[Point(x:0.2,y:0.15),Point(x:0.8,y:0.15),Point(x:0.8,y:0.85),Point(x:0.2,y:0.85)])
+func shiftedQuad(_ amount:Double)->Quad {Quad(points:trackingQuad.points.map {Point(x:$0.x+amount,y:$0.y)})}
+let cameraSignature=(0..<256).map {UInt8(80+$0%40)}
+let brighterSignature=cameraSignature.map {$0+35}
+check(CaptureStability.motion(cameraSignature,brighterSignature)<0.00001,"exposure change is not page motion")
+var captureTracker=CaptureStability()
+var fired=false
+for step in 0...5 {
+    fired=captureTracker.update(shiftedQuad(step%2==0 ? 0:0.009),signature:step%2==0 ? cameraSignature:brighterSignature,time:Double(step)*0.21,focusing:false) || fired
+}
+check(fired,"small hand jitter and exposure changes still allow capture")
+captureTracker.didCapture()
+for step in 6...18 {
+    check(!captureTracker.update(shiftedQuad(step%2==0 ? 0:0.009),signature:brighterSignature,time:Double(step)*0.21,focusing:false),"same page cannot trigger duplicate capture")
+}
+_ = captureTracker.update(nil,signature:[],time:4.0,focusing:false)
+check(captureTracker.quad != nil && !captureTracker.armed,"one contour dropout retains outline and does not rearm")
+for step in 1...4 {_ = captureTracker.update(nil,signature:[],time:4.0+Double(step)*0.21,focusing:false)}
+check(captureTracker.quad==nil && captureTracker.armed,"removing the sheet rearms camera")
+var focusTracker=CaptureStability()
+var focusedCapture=false
+for step in 0...9 {focusedCapture=focusTracker.update(trackingQuad,signature:cameraSignature,time:Double(step)*0.21,focusing:true) || focusedCapture}
+check(focusedCapture,"continuous autofocus cannot stall capture indefinitely")
+var shakyTracker=CaptureStability()
+for step in 0...12 {
+    check(!shakyTracker.update(shiftedQuad(step%2==0 ? 0:0.15),signature:cameraSignature,time:Double(step)*0.21,focusing:false),"large movement must not auto capture")
+}
+var droppedTracker=CaptureStability()
+_ = droppedTracker.update(trackingQuad,signature:cameraSignature,time:0,focusing:false)
+_ = droppedTracker.update(trackingQuad,signature:cameraSignature,time:0.21,focusing:false)
+_ = droppedTracker.update(trackingQuad,signature:cameraSignature,time:0.42,focusing:false)
+_ = droppedTracker.update(nil,signature:[],time:0.63,focusing:false)
+_ = droppedTracker.update(trackingQuad,signature:cameraSignature,time:0.84,focusing:false)
+check(droppedTracker.update(trackingQuad,signature:cameraSignature,time:1.05,focusing:false),"single missed frame does not restart stable hold")
+print("All \(passed) checks including camera hysteresis passed")

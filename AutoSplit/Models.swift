@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 import ImageIO
 
-enum Finish: String, Codable, CaseIterable { case natural = "Оригінальний", clean = "Чистий", mono = "Чорно-білий" }
+enum Finish: String, Codable, CaseIterable { case white = "Білий кольоровий", natural = "Оригінальний", clean = "Чистий", mono = "Чорно-білий" }
 struct Leaf: Codable, Identifiable {
     var id = UUID()
     var original: String
@@ -38,6 +38,7 @@ struct ScanDocument: Codable, Identifiable {
     var pages: [Leaf] = []
     var candidates: [NameCandidate] = []
     var nameConfirmed = false
+    var preferredFinish: Finish? = nil
 }
 enum ScanError: LocalizedError {
     case message(String)

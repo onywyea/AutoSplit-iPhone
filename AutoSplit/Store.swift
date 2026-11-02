@@ -32,6 +32,7 @@ final class ScannerStore:ObservableObject {
             guard let i=index(id) else { return }
             var leaf=Leaf(original:name,output:name)
             leaf.sourceKind=sourceKind;leaf.originalPDF=pdfFile;leaf.originalPDFPage=pdfPage
+            leaf.finish=documents[i].preferredFinish ?? (sourceKind == "pdf" ? .natural : .white)
             if sourceKind=="pdf" {leaf.quad = .full;leaf.cropVerified=true;leaf.edgeFill=true}
             if prepare {leaf.note="Визначення меж аркуша…"}
             documents[i].pages.append(leaf);save()
@@ -162,6 +163,33 @@ final class ScannerStore:ObservableObject {
         let explicit=candidates.filter(\.explicit)
         if !documents[i].nameConfirmed,explicit.count==1 { documents[i].title=explicit[0].name }
         save()
+    }
+    @discardableResult
+    func applyStyle(_ finish:Finish,to id:UUID) async -> Bool {
+        guard !busy,savingPhotos==0,let doc=document(id) else {return false}
+        busy=true;stopped=false;error=nil
+        defer {busy=false;save()}
+        var completed=0
+        for (position,original) in doc.pages.enumerated() {
+            if stopped {break}
+            status="Стиль: \(position+1)/\(doc.pages.count)"
+            var leaf=original;leaf.finish=finish
+            let item=leaf
+            do {
+                let result=try await Task.detached(priority:.userInitiated) {
+                    try autoreleasepool {try Imaging.renderWithEdgeReport(item)}
+                }.value
+                let output=try await Task.detached {try Disk.writeImage(result.image)}.value
+                guard let d=index(id),let p=documents[d].pages.firstIndex(where:{$0.id==item.id}) else {continue}
+                leaf.output=output;leaf.edgeRepairCount=result.changed;leaf.edgeRevision=12
+                documents[d].pages[p]=leaf
+                completed+=1;save()
+            } catch {self.error=error.localizedDescription;return false}
+        }
+        let success = !stopped && completed==doc.pages.count
+        if success,let d=index(id) {documents[d].preferredFinish=finish}
+        status=success ? "Стиль застосовано до всіх сторінок":"Зупинено. Змінено \(completed) сторінок"
+        return success
     }
     func rename(_ id:UUID,_ title:String) { guard let i=index(id) else{return}; documents[i].title=title; documents[i].nameConfirmed=true; save() }
     func updatePage(_ doc:UUID,_ leaf:Leaf) async {

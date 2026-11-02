@@ -117,6 +117,7 @@ struct DocumentView:View {
     @State private var sharing=false
     @State private var naming=false
     @State private var handoff=false
+    @State private var styling=false
     @State private var deleting=false
     @State private var editMode:EditMode = .inactive
     var doc:ScanDocument? {store.document(documentID)}
@@ -160,6 +161,7 @@ struct DocumentView:View {
                     } header: {if !doc.pages.isEmpty{Text("Сторінки")}}
                     if !doc.pages.isEmpty {
                         Section {
+                            Button {styling=true} label:{Label("Стиль усіх сторінок",systemImage:"slider.horizontal.3")}.disabled(store.busy)
                             Button {Task{await store.analyze(documentID,force:true)}} label:{Label("Очистити, повернути та визначити ПІБ",systemImage:"wand.and.stars")}.disabled(store.busy)
                             Button {handoff=true} label:{Label("Підготувати завдання для ChatGPT",systemImage:"sparkles")}.disabled(store.busy)
                             Button {sharing=true} label:{Label("Зберегти або поділитися PDF",systemImage:"square.and.arrow.up")}.disabled(store.busy)
@@ -198,6 +200,7 @@ struct DocumentView:View {
         .sheet(isPresented:$sharing){PDFExportSheet(ids:[documentID])}
         .sheet(isPresented:$naming){NameSheet(documentID:documentID)}
         .sheet(isPresented:$handoff){HandoffView(ids:[documentID])}
+        .sheet(isPresented:$styling){DocumentStyleSheet(documentID:documentID)}
         .confirmationDialog("Видалити скан зі списку?",isPresented:$deleting,titleVisibility:.visible){Button("Видалити",role:.destructive){store.deleteDocument(documentID);dismiss()}}
     }
 }

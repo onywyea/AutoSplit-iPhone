@@ -1,0 +1,12 @@
+{
+  "version": "0.3.0",
+  "build": 13,
+  "swift_syntax_files": 19,
+  "syntax_errors": [],
+  "package_check": "passed",
+  "native_build": "not_run_no_Xcode",
+  "swift_core_tests": "added_for_GitHub_Actions_not_run_locally",
+  "device_camera_test": "not_run",
+  "white_color_filter_device_test": "not_run",
+  "historical_edge_reference": "reference_check.json describes only 0.2.10"
+}

@@ -16,11 +16,9 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     private var configured=false
     private var capturing=false
     private var lastTime=Date.distantPast
-    private var lastQuad:Quad?
-    private var stable=0
-    private var armed=true
-    private var absent=0
-    private var lastSignature:[UInt8]?
+    private var tracker=CaptureStability()
+    private var lastSegmentation=Date.distantPast
+    private var runningWanted=false
     private let imageContext=CIContext()
     private var auto=true
     private var useFlash=true
@@ -36,10 +34,12 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     @Published var lastFlashFired:Bool?
     var captured:((UIImage)->Void)?
     func start() {
+        queue.async {self.runningWanted=true}
         AVCaptureDevice.requestAccess(for:.video) { [weak self] granted in
             guard let self else { return }
             guard granted else { DispatchQueue.main.async { self.message="Дозвольте камеру в Налаштуваннях iPhone → ScanFlow" }; return }
             self.queue.async {
+                guard self.runningWanted else {return}
                 do {
                     if !self.configured {
                         self.session.beginConfiguration(); self.session.sessionPreset = .photo
@@ -83,8 +83,8 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         processingLock.lock();processing=value;processingLock.unlock()
         DispatchQueue.main.async {self.preparing=value;if value {self.message="Визначення меж аркуша…"}}
     }
-    func stop() { queue.async { if self.session.isRunning { self.session.stopRunning() } } }
-    func setAuto(_ value:Bool) { frames.async { self.auto=value; self.stable=0 } }
+    func stop() { queue.async {self.runningWanted=false; if self.session.isRunning { self.session.stopRunning() } } }
+    func setAuto(_ value:Bool) { frames.async { self.auto=value; self.tracker.resetStability() } }
     func toggleFlash() {
         queue.async {
             self.useFlash.toggle()
@@ -113,14 +113,14 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                 if device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
                 if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
                 device.unlockForConfiguration()
-                self.frames.async {self.stable=0}
+                self.frames.async {self.tracker.resetStability()}
             } catch {}
         }
     }
     private func pauseDetectionAfterShot() {
         frames.async {
             self.ignoreFramesUntil=Date().addingTimeInterval(1.2)
-            self.stable=0; self.armed=false
+            self.tracker.didCapture()
         }
     }
     func shoot() {
@@ -165,40 +165,58 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         return bytes
     }
     func captureOutput(_ output:AVCaptureOutput,didOutput sampleBuffer:CMSampleBuffer,from connection:AVCaptureConnection) {
-        guard !processingNow,Date()>ignoreFramesUntil,Date().timeIntervalSince(lastTime)>0.45,let buffer=CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        lastTime=Date()
-        let request=VNDetectRectanglesRequest(); request.minimumConfidence=0.8; request.maximumObservations=1
-        request.minimumSize=0.35; request.minimumAspectRatio=0.3; request.quadratureTolerance=25
+        let now=Date()
+        guard !processingNow,now>ignoreFramesUntil,now.timeIntervalSince(lastTime)>0.20,
+              let buffer=CMSampleBufferGetImageBuffer(sampleBuffer) else {return}
+        lastTime=now
+        let input=CIImage(cvPixelBuffer:buffer)
+        let factor=min(1,1100/max(input.extent.width,input.extent.height))
+        let scaled=input.transformed(by:CGAffineTransform(scaleX:factor,y:factor))
+        guard let cg=imageContext.createCGImage(scaled,from:scaled.extent) else {return}
+        func q(_ r:VNRectangleObservation)->Quad {
+            func p(_ v:CGPoint)->Point {Point(x:Double(v.x),y:Double(1-v.y))}
+            return Quad(points:[p(r.topLeft),p(r.topRight),p(r.bottomRight),p(r.bottomLeft)])
+        }
+        func eligible(_ quad:Quad)->Bool {
+            let area=CropSafety.area(quad)
+            return quad.valid && area>=0.055 && area<0.94
+        }
+        let request=VNDetectRectanglesRequest()
+        request.minimumConfidence=0.55;request.maximumObservations=8
+        request.minimumSize=0.15;request.minimumAspectRatio=0.25;request.quadratureTolerance=35
         do {
-            try VNImageRequestHandler(cvPixelBuffer:buffer,orientation:.up).perform([request])
-            guard let r=request.results?.first else {
-                stable=0; absent+=1
-                if absent>=2 { armed=true; lastQuad=nil }
-                DispatchQueue.main.async { self.detected=false;self.detectedQuad=nil; self.message="Аркуш має бути повністю в кадрі" }; return
+            try VNImageRequestHandler(cgImage:cg).perform([request])
+            var proposals=(request.results ?? []).map {(q($0),Double($0.confidence))}.filter {eligible($0.0)}
+            var documentCandidate:Quad?
+            // Semantic paper detection supplements rectangles, particularly on
+            // a patterned floor. Run periodically, not on every video frame.
+            if proposals.isEmpty || now.timeIntervalSince(lastSegmentation)>0.9 {
+                lastSegmentation=now
+                let document=VNDetectDocumentSegmentationRequest()
+                try? VNImageRequestHandler(cgImage:cg).perform([document])
+                let sheets=(document.results ?? []).filter {$0.confidence>=0.55}.map {(q($0),Double($0.confidence)+0.55)}.filter {eligible($0.0)}
+                documentCandidate=sheets.max {a,b in a.1*sqrt(CropSafety.area(a.0))<b.1*sqrt(CropSafety.area(b.0))}?.0
+                proposals += sheets
             }
-            absent=0
-            func p(_ v:CGPoint)->Point { .init(x:Double(v.x),y:Double(1-v.y)) }
-            let quad=Quad(points:[p(r.topLeft),p(r.topRight),p(r.bottomRight),p(r.bottomLeft)])
-            var delta=1.0
-            if let lastQuad {
-                delta=zip(quad.points,lastQuad.points).map { pair in abs(pair.0.x-pair.1.x)+abs(pair.0.y-pair.1.y) }.reduce(0,+)/4
-            }
+            let previous=tracker.quad
+            let candidate=documentCandidate ?? proposals.max {a,b in
+                func score(_ item:(Quad,Double))->Double {
+                    let continuity=previous.map {max(0,0.25-CaptureStability.distance($0,item.0))} ?? 0
+                    return item.1*sqrt(CropSafety.area(item.0))+continuity*3
+                }
+                return score(a)<score(b)
+            }?.0
             let signature=frameSignature(buffer)
-            var motion=0.0
-            if let previous=lastSignature,previous.count==signature.count,!signature.isEmpty {
-                motion=zip(previous,signature).map{pair in abs(Double(pair.0)-Double(pair.1))/255}.reduce(0,+)/Double(signature.count)
-            }
-            lastSignature=signature
-            if delta>0.12 || motion>0.06 { armed=true }
-            stable=delta<0.018 && motion<0.015 ? stable+1 : 0; lastQuad=quad
-            let statusMessage=auto ? (armed ? "Тримайте нерухомо…" : "Перегорніть або заберіть аркуш") : "Аркуш знайдено"
+            let ready=tracker.update(candidate,signature:signature,time:now.timeIntervalSinceReferenceDate,focusing:camera?.isAdjustingFocus == true)
+            let quad=tracker.quad
             let aspect=CGFloat(CVPixelBufferGetWidth(buffer))/CGFloat(CVPixelBufferGetHeight(buffer))
-            let adjusting=camera?.isAdjustingFocus == true || camera?.isAdjustingExposure == true
-            if adjusting {stable=0}
-            DispatchQueue.main.async { self.detected=true;self.detectedQuad=quad;self.frameAspect=aspect;self.message=adjusting ? "Налаштування різкості…":statusMessage }
-            if auto && armed && stable>=3 { armed=false; stable=0; shoot() }
-        } catch { DispatchQueue.main.async { self.message="Зніміть вручну кнопкою внизу" } }
+            let text = quad == nil ? "У кадрі має бути весь аркуш · можна зняти вручну" :
+                (auto ? (tracker.armed ? "Аркуш знайдено · готую знімок…":"Перегорніть або заберіть аркуш") : "Аркуш знайдено")
+            DispatchQueue.main.async {self.detected=quad != nil;self.detectedQuad=quad;self.frameAspect=aspect;self.message=text}
+            if auto && ready {tracker.didCapture();shoot()}
+        } catch {DispatchQueue.main.async {self.message="Зніміть вручну кнопкою внизу"}}
     }
+
 }
 final class CameraLayer: UIView {
     weak var engine:CameraEngine?
@@ -228,6 +246,9 @@ struct CaptureView:View {
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
     @StateObject private var engine=CameraEngine()
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var previousIdleTimer:Bool?
+    @State private var visible=false
     @State private var auto=true
     @State private var exposure=false
     @State private var reviewing=false
@@ -299,6 +320,9 @@ struct CaptureView:View {
             }.foregroundStyle(.white)
         }.background(.black)
         .onAppear {
+            visible=true
+            if previousIdleTimer==nil {previousIdleTimer=UIApplication.shared.isIdleTimerDisabled}
+            updateCameraActivity()
             engine.captured={ [weak engine] image in
                 engine?.setProcessing(true)
                 Task {
@@ -306,12 +330,12 @@ struct CaptureView:View {
                     engine?.setProcessing(false)
                 }
             }
-            engine.start()
         }
-        .onDisappear {engine.stop();store.save()}
+        .onDisappear {visible=false;engine.stop();UIApplication.shared.isIdleTimerDisabled=previousIdleTimer ?? false;previousIdleTimer=nil;store.save()}
         .onChange(of:auto){_,value in engine.setAuto(value)}
-        .onChange(of:reviewing){_,value in if value {engine.stop()}}
-        .fullScreenCover(isPresented:$reviewing,onDismiss:{engine.start()}) {
+        .onChange(of:reviewing){_,_ in updateCameraActivity()}
+        .onChange(of:scenePhase){_,_ in updateCameraActivity()}
+        .fullScreenCover(isPresented:$reviewing,onDismiss:{updateCameraActivity()}) {
             if let first=pages.last {
                 NavigationStack {
                     PageBrowser(documentID:documentID,initialPageID:first.id)
@@ -320,4 +344,10 @@ struct CaptureView:View {
             }
         }
     }
+    private func updateCameraActivity() {
+        let active=visible && scenePhase == .active && !reviewing
+        UIApplication.shared.isIdleTimerDisabled=active ? true : (previousIdleTimer ?? false)
+        if active {engine.start()}else{engine.stop()}
+    }
+
 }

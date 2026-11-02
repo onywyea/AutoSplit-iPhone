@@ -36,7 +36,7 @@ struct PageEditor:View {
                 } label: {Label("Виділити текст · Live Text",systemImage:"text.viewfinder").font(.subheadline.weight(.medium))}
                 VStack(alignment:.leading,spacing:16) {
                     Text("Вигляд сторінки").font(.headline)
-                    Picker("Обробка",selection:$leaf.finish) { ForEach(Finish.allCases,id:\.self){Text($0.rawValue).tag($0)} }.pickerStyle(.segmented)
+                    Picker("Обробка",selection:$leaf.finish) { ForEach(Finish.allCases,id:\.self){Text($0.rawValue).tag($0)} }.pickerStyle(.menu)
                     Toggle("Автоматично очищати край",isOn:Binding(get:{leaf.edgeFill},set:{leaf.edgeFill=$0;leaf.edgeChoiceExplicit=true})).tint(.mint)
                     DisclosureGroup("Налаштування краю") {
                         VStack(alignment:.leading,spacing:12) {
@@ -126,12 +126,14 @@ struct CornerEditor:View {
     let file:String
     @State var quad:Quad
     @State private var image:UIImage?
+    @State private var activeCorner:Int?
+    @State private var dragOrigin:Point?
     let done:(Quad)->Void
     init(file:String,initial:Quad,done:@escaping(Quad)->Void) { self.file=file;_quad=State(initialValue:initial);self.done=done }
     var body:some View {
         NavigationStack {
             VStack(spacing:20) {
-                Text("Перетягніть чотири точки точно на кути аркуша").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
+                Text("Перетягніть точки на кути. Точне положення видно у лупі над пальцем.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center).padding()
                 if let image {
                     GeometryReader { proxy in
                         let scale=min(proxy.size.width/image.size.width,proxy.size.height/image.size.height)
@@ -154,9 +156,20 @@ struct CornerEditor:View {
                             ForEach(0..<4,id:\.self) { i in
                                 Circle().fill(.white).frame(width:22,height:22).overlay(Circle().stroke(.mint,lineWidth:4)).frame(width:48,height:48).contentShape(Rectangle())
                                     .position(x:offset.x+quad.points[i].x*size.width,y:offset.y+quad.points[i].y*size.height)
-                                    .gesture(DragGesture(coordinateSpace:.named("crop")).onChanged { value in
-                                        quad.points[i]=Point(x:min(1,max(0,(value.location.x-offset.x)/size.width)),y:min(1,max(0,(value.location.y-offset.y)/size.height)))
-                                    })
+                                    .accessibilityLabel(["Верхній лівий кут","Верхній правий кут","Нижній правий кут","Нижній лівий кут"][i])
+                                    .gesture(DragGesture(minimumDistance:0,coordinateSpace:.named("crop")).onChanged { value in
+                                        if activeCorner != i {activeCorner=i;dragOrigin=quad.points[i]}
+                                        guard let origin=dragOrigin,size.width>0,size.height>0 else {return}
+                                        quad.points[i]=Point(x:min(1,max(0,origin.x+value.translation.width/size.width)),y:min(1,max(0,origin.y+value.translation.height/size.height)))
+                                    }.onEnded {_ in activeCorner=nil;dragOrigin=nil})
+                            }
+                            if let active=activeCorner {
+                                let point=quad.points[active]
+                                let x=offset.x+point.x*size.width,y=offset.y+point.y*size.height
+                                let loupeX=min(max(65,x),max(65,proxy.size.width-65))
+                                let loupeY=y>155 ? y-100:min(proxy.size.height-65,y+110)
+                                CornerLoupe(image:image,point:point,displaySize:size)
+                                    .position(x:loupeX,y:max(65,loupeY)).allowsHitTesting(false)
                             }
                         }.coordinateSpace(name:"crop")
                     }.padding(20)
@@ -168,5 +181,30 @@ struct CornerEditor:View {
                 ToolbarItem(placement:.confirmationAction){Button {done(quad);dismiss()} label:{Image(systemName:"checkmark").fontWeight(.semibold)}.disabled(!quad.valid).accessibilityLabel("Застосувати межі")}
             }
         }
+    }
+}
+
+private struct CornerLoupe:View {
+    let image:UIImage
+    let point:Point
+    let displaySize:CGSize
+    var body:some View {
+        let zoom=3.0
+        ZStack(alignment:.topLeading) {
+            Color.black
+            Image(uiImage:image).resizable()
+                .frame(width:displaySize.width*zoom,height:displaySize.height*zoom)
+                .offset(x:60-point.x*displaySize.width*zoom,y:60-point.y*displaySize.height*zoom)
+            Path {path in
+                path.move(to:CGPoint(x:47,y:60));path.addLine(to:CGPoint(x:73,y:60))
+                path.move(to:CGPoint(x:60,y:47));path.addLine(to:CGPoint(x:60,y:73))
+            }.stroke(.black,lineWidth:3)
+            Path {path in
+                path.move(to:CGPoint(x:47,y:60));path.addLine(to:CGPoint(x:73,y:60))
+                path.move(to:CGPoint(x:60,y:47));path.addLine(to:CGPoint(x:60,y:73))
+            }.stroke(.white,lineWidth:1)
+        }.frame(width:120,height:120).clipShape(RoundedRectangle(cornerRadius:16))
+            .overlay(RoundedRectangle(cornerRadius:16).stroke(.white,lineWidth:3))
+            .shadow(color:.black.opacity(0.5),radius:8,y:3)
     }
 }

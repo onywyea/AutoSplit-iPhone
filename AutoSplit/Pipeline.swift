@@ -1,6 +1,7 @@
 import UIKit
 import Vision
 import CoreImage
+import CoreImage.CIFilterBuiltins
 
 struct PageResult { let image: UIImage; let quad: Quad?; let turns: Int; let text: String; let note: String; let cropVerified:Bool;let edgeRepairCount:Int }
 struct CapturePreview { let image:UIImage;let quad:Quad;let verified:Bool;let edgeRepairCount:Int }
@@ -12,11 +13,11 @@ extension Imaging {
         var proposals:[(Quad,Double)]=[]
         let document=VNDetectDocumentSegmentationRequest()
         try? VNImageRequestHandler(cgImage:cg).perform([document])
-        for observation in document.results ?? [] where observation.confidence>=0.60 {
-            proposals.append((quad(observation),Double(observation.confidence)+0.15))
+        for observation in document.results ?? [] where observation.confidence>=0.45 {
+            proposals.append((quad(observation),Double(observation.confidence)+0.8))
         }
         let rectangles=VNDetectRectanglesRequest()
-        rectangles.maximumObservations=24;rectangles.minimumConfidence=0.60;rectangles.minimumSize=0.12
+        rectangles.maximumObservations=24;rectangles.minimumConfidence=0.50;rectangles.minimumSize=0.10
         rectangles.minimumAspectRatio=0.25;rectangles.maximumAspectRatio=1;rectangles.quadratureTolerance=35
         try? VNImageRequestHandler(cgImage:cg).perform([rectangles])
         for observation in rectangles.results ?? [] {proposals.append((quad(observation),Double(observation.confidence)))}
@@ -76,7 +77,8 @@ extension Imaging {
         // Quick review does not run four OCR rotations. It does show the actual
         // detected crop before the thumbnail becomes available.
         let repaired=try preparedImage(leaf,original:original,quad:decision.quad,verified:decision.verified)
-        return CapturePreview(image:repaired.image,quad:decision.quad,verified:decision.verified,edgeRepairCount:repaired.changed)
+        let preview=try finish(repaired.image,mode:leaf.finish,edgeFill:false)
+        return CapturePreview(image:preview,quad:decision.quad,verified:decision.verified,edgeRepairCount:repaired.changed)
     }
     static func perspective(_ image: UIImage, quad: Quad?) throws -> UIImage {
         guard let quad,quad != .full else { return image }
@@ -90,7 +92,17 @@ extension Imaging {
     }
     static func finish(_ image:UIImage, mode:Finish, edgeFill:Bool) throws -> UIImage {
         var image=image
-        if mode != .natural,let input=CIImage(image:image) {
+        if mode == .white,let input=CIImage(image:image) {
+            // Native local document enhancement: illumination correction, not
+            // grayscale conversion or a flat white overlay over document marks.
+            let enhancer=CIFilter.documentEnhancer()
+            enhancer.inputImage=input;enhancer.amount=4.0
+            guard let out=enhancer.outputImage,
+                  let cg=CIContext().createCGImage(out,from:input.extent) else {
+                throw ScanError.message("Не вдалося застосувати білий кольоровий стиль")
+            }
+            image=UIImage(cgImage:cg)
+        } else if mode != .natural,let input=CIImage(image:image) {
             let filter=CIFilter(name:"CIColorControls")!
             filter.setValue(input,forKey:kCIInputImageKey)
             filter.setValue(mode == .mono ? 0 : 0.88,forKey:kCIInputSaturationKey)

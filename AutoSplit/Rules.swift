@@ -1,5 +1,68 @@
 import Foundation
 
+// Time-based hysteresis. A missed contour or exposure pulse is not a new page.
+struct CaptureStability {
+    private(set) var quad:Quad?
+    private(set) var armed=true
+    private(set) var ready=false
+    private var credit=0.0
+    private var lastTime:Double?
+    private var missing=0
+    private var changeFrames=0
+    private var signature:[UInt8]=[]
+    private var capturedQuad:Quad?
+    private var capturedSignature:[UInt8]=[]
+    private var focusTime=0.0
+    mutating func resetStability() {credit=0;ready=false;focusTime=0}
+    mutating func didCapture() {
+        armed=false;capturedQuad=quad;capturedSignature=signature
+        changeFrames=0;resetStability()
+    }
+    static func distance(_ a:Quad,_ b:Quad)->Double {
+        zip(a.points,b.points).map {hypot($0.x-$1.x,$0.y-$1.y)}.reduce(0,+)/4
+    }
+    static func motion(_ a:[UInt8],_ b:[UInt8])->Double {
+        guard !a.isEmpty,a.count==b.count else {return 0}
+        let ma=a.reduce(0.0){$0+Double($1)}/Double(a.count)
+        let mb=b.reduce(0.0){$0+Double($1)}/Double(b.count)
+        return zip(a,b).map {abs((Double($0)-ma)-(Double($1)-mb))/255}.reduce(0,+)/Double(a.count)
+    }
+    mutating func update(_ candidate:Quad?,signature current:[UInt8],time:Double,focusing:Bool)->Bool {
+        let dt=min(0.3,max(0,time-(lastTime ?? time)))
+        lastTime=time;ready=false
+        guard let candidate,candidate.valid else {
+            missing+=1;credit=max(0,credit-0.10)
+            if missing>=4 {quad=nil;armed=true;credit=0}
+            return false
+        }
+        missing=0
+        let delta=quad.map {Self.distance($0,candidate)} ?? 1
+        let movement=Self.motion(signature,current)
+        if !armed {
+            let changed=capturedQuad.map {Self.distance($0,candidate)>0.09} ?? true
+            let differentContent=Self.motion(capturedSignature,current)>0.065
+            changeFrames=(changed || differentContent) ? changeFrames+1:0
+            if changeFrames>=2 {armed=true;credit=0}
+        }
+        // Follow real motion, smooth small jitter only; never reuse stale corners
+        // for the high-resolution photograph's independent crop check.
+        if let previous=quad,delta<0.05 {
+            quad=Quad(points:zip(previous.points,candidate.points).map {
+                Point(x:$0.x*0.35+$1.x*0.65,y:$0.y*0.35+$1.y*0.65)
+            })
+        } else {quad=candidate}
+        signature=current
+        if delta>0.09 || movement>0.08 {credit=0;focusTime=0}
+        else if delta<0.04 && movement<0.045 {credit+=dt}
+        else {credit=max(0,credit-dt*0.5)}
+        // AE routinely keeps adjusting under fluorescent lights. Only AF gates
+        // capture, with a bounded wait instead of resetting the accumulated hold.
+        focusTime=focusing ? focusTime+dt:0
+        ready=armed && credit>=0.65 && (!focusing || focusTime>=0.9)
+        return ready
+    }
+}
+
 enum NameFinder {
     static func candidates(_ text: String) -> [NameCandidate] {
         let upper = "[А-ЯІЇЄҐ]"
