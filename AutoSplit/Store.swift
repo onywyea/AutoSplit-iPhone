@@ -203,8 +203,11 @@ final class ScannerStore:ObservableObject {
         } catch { self.error=error.localizedDescription }
     }
     func deletePage(_ doc:UUID,_ leaf:UUID) {
-        guard !busy,let i=index(doc) else{return}
-        documents[i].pages.removeAll{$0.id==leaf}; refreshNames(doc); save()
+        guard !busy,savingPhotos==0,let i=index(doc) else{return}
+        documents[i].pages.removeAll{$0.id==leaf}
+        // A prepared PDF must not keep a page removed from the current scan.
+        shareURLs=[];exportSummary=""
+        refreshNames(doc); save()
     }
     func movePages(_ doc:UUID,from:IndexSet,to:Int) { guard !busy,let i=index(doc) else{return}; documents[i].pages.move(fromOffsets:from,toOffset:to);save() }
     func deleteDocument(_ id:UUID) {deleteDocuments([id])}

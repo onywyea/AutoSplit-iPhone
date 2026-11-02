@@ -336,11 +336,9 @@ struct CaptureView:View {
         .onChange(of:reviewing){_,_ in updateCameraActivity()}
         .onChange(of:scenePhase){_,_ in updateCameraActivity()}
         .fullScreenCover(isPresented:$reviewing,onDismiss:{updateCameraActivity()}) {
-            if let first=pages.last {
-                NavigationStack {
-                    PageBrowser(documentID:documentID,initialPageID:first.id)
-                        .toolbar {ToolbarItem(placement:.topBarLeading){Button("До камери"){reviewing=false}}}
-                }
+            NavigationStack {
+                PageBrowser(documentID:documentID,initialPageID:pages.last?.id ?? documentID)
+                    .toolbar {ToolbarItem(placement:.topBarLeading){Button("До камери"){reviewing=false}}}
             }
         }
     }

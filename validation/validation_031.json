@@ -1,0 +1,11 @@
+{
+  "version": "0.3.1",
+  "build": 14,
+  "swift_syntax_files": 19,
+  "syntax_errors": [],
+  "package_check": "passed",
+  "native_build": "not_run",
+  "device_UI_test": "not_run",
+  "color_filter_changed": false,
+  "comparison_note": "PDF output comparison only, not matched input frames"
+}

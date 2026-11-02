@@ -21,39 +21,80 @@ extension Imaging {
         rectangles.minimumAspectRatio=0.25;rectangles.maximumAspectRatio=1;rectangles.quadratureTolerance=35
         try? VNImageRequestHandler(cgImage:cg).perform([rectangles])
         for observation in rectangles.results ?? [] {proposals.append((quad(observation),Double(observation.confidence)))}
-        // Confidence alone accepted internal table frames in earlier versions.
-        let text=VNRecognizeTextRequest();text.recognitionLevel = .accurate;text.usesLanguageCorrection=false
-        try? VNImageRequestHandler(cgImage:cg).perform([text])
-        var content=(text.results ?? []).compactMap {observation -> Quad? in
-            guard let candidate=observation.topCandidates(1).first,candidate.confidence>=0.45,candidate.string.filter({$0.isLetter || $0.isNumber}).count>=3 else {return nil}
-            let r=observation.boundingBox
-            return Quad(points:[point(CGPoint(x:r.minX,y:r.maxY)),point(CGPoint(x:r.maxX,y:r.maxY)),point(CGPoint(x:r.maxX,y:r.minY)),point(CGPoint(x:r.minX,y:r.minY))])
-        }
-        // Strong blue marks often sit outside a certificate's printed frame.
-        // Include them even when OCR cannot read a circular stamp or a signature.
+        // Validate the physical paper/background transition locally at the
+        // proposed edges. Blue objects and OCR elsewhere in the photo cannot
+        // veto an otherwise valid sheet. An internal table has paper on BOTH
+        // sides, so it does not pass this boundary check.
         let w=cg.width,h=cg.height
         var pixels=[UInt8](repeating:0,count:w*h*4)
-        pixels.withUnsafeMutableBytes { raw in
-            if let context=CGContext(data:raw.baseAddress,width:w,height:h,bitsPerComponent:8,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) {context.draw(cg,in:CGRect(x:0,y:0,width:w,height:h))}
+        let ok=pixels.withUnsafeMutableBytes {raw -> Bool in
+            let flags=CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+            guard let context=CGContext(data:raw.baseAddress,width:w,height:h,bitsPerComponent:8,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:flags) else {return false}
+            context.draw(cg,in:CGRect(x:0,y:0,width:w,height:h));return true
         }
-        var count=0,minX=w,minY=h,maxX=0,maxY=0
-        for y in 0..<h {for x in 0..<w {
-            let i=(y*w+x)*4,r=Int(pixels[i]),g=Int(pixels[i+1]),b=Int(pixels[i+2])
-            if b-r>25 && b-g>12 {count+=1;minX=min(minX,x);maxX=max(maxX,x);minY=min(minY,y);maxY=max(maxY,y)}
-        }}
-        if count>=25 {
-            let l=Double(minX)/Double(w),r=Double(maxX+1)/Double(w),t=Double(minY)/Double(h),b=Double(maxY+1)/Double(h)
-            content.append(Quad(points:[Point(x:l,y:t),Point(x:r,y:t),Point(x:r,y:b),Point(x:l,y:b)]))
+        guard ok else {return nil}
+        func paperValue(_ x:Double,_ y:Double)->Double? {
+            guard x>=0,y>=0,x<Double(w),y<Double(h) else {return nil}
+            let index=(Int(y)*w+Int(x))*4
+            let r=Double(pixels[index]),g=Double(pixels[index+1]),b=Double(pixels[index+2])
+            let light=(r+g+b)/3.0
+            let spread=max(r,max(g,b))-min(r,min(g,b))
+            return light-1.3*spread
         }
-        let hasContent = !content.isEmpty
-        return proposals.filter {CropSafety.usable($0.0,content:content,camera:true)}
-            .max {lhs,rhs in
-                let la=CropSafety.area(lhs.0),ra=CropSafety.area(rhs.0)
-                // A large floor rectangle must not outrank the sheet enclosing all content.
-                let ls=hasContent ? lhs.1/sqrt(la):lhs.1*sqrt(la)
-                let rs=hasContent ? rhs.1/sqrt(ra):rhs.1*sqrt(ra)
-                return ls<rs
-            }?.0
+        func boundary(_ q:Quad)->Double? {
+            guard CropSafety.usable(q,content:[],camera:true) else {return nil}
+            let step=max(3.0,Double(min(w,h))*0.012)
+            var contrasts:[Double]=[]
+            for side in 0..<4 {
+                let a=q.points[side],b=q.points[(side+1)%4]
+                let ax=a.x*Double(w),ay=a.y*Double(h)
+                let dx=(b.x-a.x)*Double(w),dy=(b.y-a.y)*Double(h)
+                let length=hypot(dx,dy)
+                guard length>1 else {continue}
+                let nx = -dy/length,ny=dx/length
+                var votes:[Double]=[]
+                for sample in 2...18 {
+                    let t=Double(sample)/20.0
+                    let x=ax+dx*t,y=ay+dy*t
+                    if let inside=paperValue(x+nx*step,y+ny*step),
+                       let outside=paperValue(x-nx*step,y-ny*step) {
+                        votes.append(inside-outside)
+                    }
+                }
+                if votes.count>=9 {votes.sort();contrasts.append(votes[votes.count/2])}
+            }
+            let strong=contrasts.filter {$0>=12.0}.count
+            guard contrasts.count>=3,strong>=3 else {return nil}
+            return contrasts.reduce(0.0,+)/Double(contrasts.count)
+        }
+        // An additional detector input separates neutral paper from warm wood.
+        // This creates PROPOSALS only; every proposal must pass the original
+        // color-image boundary check above before it can crop anything.
+        var mask=[UInt8](repeating:0,count:w*h)
+        for pixel in 0..<(w*h) {
+            let base=pixel*4
+            let r=Int(pixels[base]),g=Int(pixels[base+1]),b=Int(pixels[base+2])
+            let light=(r+g+b)/3
+            let spread=max(r,max(g,b))-min(r,min(g,b))
+            if light>=130 && spread<=max(24,light/6) {mask[pixel]=255}
+        }
+        if let provider=CGDataProvider(data:Data(mask) as CFData),
+           let paper=CGImage(width:w,height:h,bitsPerComponent:8,bitsPerPixel:8,bytesPerRow:w,space:CGColorSpaceCreateDeviceGray(),bitmapInfo:CGBitmapInfo(rawValue:0),provider:provider,decode:nil,shouldInterpolate:false,intent:.defaultIntent) {
+            let edges=VNDetectRectanglesRequest()
+            edges.maximumObservations=24;edges.minimumConfidence=0.35;edges.minimumSize=0.10
+            edges.minimumAspectRatio=0.25;edges.maximumAspectRatio=1;edges.quadratureTolerance=35
+            try? VNImageRequestHandler(cgImage:paper).perform([edges])
+            for observation in edges.results ?? [] {proposals.append((quad(observation),Double(observation.confidence)))}
+        }
+        var best:Quad?
+        var bestScore = -Double.infinity
+        for proposal in proposals {
+            guard let edge=boundary(proposal.0) else {continue}
+            let area=CropSafety.area(proposal.0)
+            let score=edge+proposal.1*10.0+sqrt(area)*10.0
+            if score>bestScore {best=proposal.0;bestScore=score}
+        }
+        return best
     }
     static func cropDecision(_ leaf:Leaf,original:UIImage) throws -> (quad:Quad,verified:Bool) {
         if leaf.manualCrop==true {return (leaf.quad ?? .full,true)}
@@ -69,7 +110,7 @@ extension Imaging {
         // narrow rim AFTER a verified photo crop, never to the full PDF canvas.
         let brushed=try cleanRim(original,automatic:false,strokes:leaf.cleanupStrokes ?? [])
         let cropped=try perspective(brushed,quad:quad)
-        return try repairRim(cropped,automatic:leaf.edgeFill,overlap:leaf.edgeOverlap ?? 0.06,reach:leaf.edgeReach ?? 0.08)
+        return try repairRim(cropped,automatic:leaf.edgeFill && verified,overlap:leaf.edgeOverlap ?? 0.06,reach:leaf.edgeReach ?? 0.08)
     }
     static func prepareCapture(_ leaf:Leaf) throws -> CapturePreview {
         guard let original=Disk.image(leaf.original) else {throw ScanError.message("Оригінал відсутній")}
@@ -77,7 +118,7 @@ extension Imaging {
         // Quick review does not run four OCR rotations. It does show the actual
         // detected crop before the thumbnail becomes available.
         let repaired=try preparedImage(leaf,original:original,quad:decision.quad,verified:decision.verified)
-        let preview=try finish(repaired.image,mode:leaf.finish,edgeFill:false)
+        let preview=try finish(repaired.image,mode:decision.verified ? leaf.finish : .natural,edgeFill:false)
         return CapturePreview(image:preview,quad:decision.quad,verified:decision.verified,edgeRepairCount:repaired.changed)
     }
     static func perspective(_ image: UIImage, quad: Quad?) throws -> UIImage {
@@ -127,7 +168,7 @@ extension Imaging {
         }
         let decision=RasterAxis.choose(scores:scores,axis:axis,manual:leaf.manualTurns)
         let turns=decision.turns
-        let image=try finish(rotate(cropped,turns:turns),mode:leaf.finish,edgeFill:false)
+        let image=try finish(rotate(cropped,turns:turns),mode:crop.verified ? leaf.finish : .natural,edgeFill:false)
         let read=try recognize(image,fast:false)
         var notes:[String] = []
         if leaf.edgeFill {notes.append(repaired.changed>0 ? "Край оброблено":"Край перевірено — без змін")}
@@ -142,7 +183,7 @@ extension Imaging {
         guard let original=Disk.image(leaf.original) else { throw ScanError.message("Оригінал відсутній") }
         let crop=try cropDecision(leaf,original:original)
         let prepared=try preparedImage(leaf,original:original,quad:crop.quad,verified:crop.verified)
-        let image=try finish(rotate(prepared.image,turns:leaf.turns),mode:leaf.finish,edgeFill:false)
+        let image=try finish(rotate(prepared.image,turns:leaf.turns),mode:crop.verified ? leaf.finish : .natural,edgeFill:false)
         return EdgeRepairResult(image:image,changed:prepared.changed)
     }
 }
