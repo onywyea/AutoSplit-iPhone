@@ -189,20 +189,29 @@ private struct CornerLoupe:View {
     let point:Point
     let displaySize:CGSize
     var body:some View {
-        let zoom=3.0
-        ZStack(alignment:.topLeading) {
-            Color.black
-            Image(uiImage:image).resizable()
-                .frame(width:displaySize.width*zoom,height:displaySize.height*zoom)
-                .offset(x:60-point.x*displaySize.width*zoom,y:60-point.y*displaySize.height*zoom)
-            Path {path in
-                path.move(to:CGPoint(x:47,y:60));path.addLine(to:CGPoint(x:73,y:60))
-                path.move(to:CGPoint(x:60,y:47));path.addLine(to:CGPoint(x:60,y:73))
-            }.stroke(.black,lineWidth:3)
-            Path {path in
-                path.move(to:CGPoint(x:47,y:60));path.addLine(to:CGPoint(x:73,y:60))
-                path.move(to:CGPoint(x:60,y:47));path.addLine(to:CGPoint(x:60,y:73))
-            }.stroke(.white,lineWidth:1)
+        // Draw in a fixed 120-point canvas. A large SwiftUI image inside a
+        // ZStack changes its layout bounds and moves the sample off the loupe.
+        Canvas {context,canvas in
+            let bounds=CGRect(origin:.zero,size:canvas)
+            context.fill(Path(bounds),with:.color(Color(white:0.12)))
+            guard displaySize.width>0,displaySize.height>0 else {return}
+            let zoom:CGFloat=3.0
+            let width:CGFloat=displaySize.width*zoom
+            let height:CGFloat=displaySize.height*zoom
+            let centerX:CGFloat=canvas.width/2
+            let centerY:CGFloat=canvas.height/2
+            let sourceX:CGFloat=CGFloat(point.x)*width
+            let sourceY:CGFloat=CGFloat(point.y)*height
+            let destination=CGRect(x:centerX-sourceX,y:centerY-sourceY,width:width,height:height)
+            let resolved=context.resolve(Image(uiImage:image))
+            context.draw(resolved,in:destination)
+            var crosshair=Path()
+            crosshair.move(to:CGPoint(x:centerX-13,y:centerY))
+            crosshair.addLine(to:CGPoint(x:centerX+13,y:centerY))
+            crosshair.move(to:CGPoint(x:centerX,y:centerY-13))
+            crosshair.addLine(to:CGPoint(x:centerX,y:centerY+13))
+            context.stroke(crosshair,with:.color(.black),lineWidth:3)
+            context.stroke(crosshair,with:.color(.white),lineWidth:1)
         }.frame(width:120,height:120).clipShape(RoundedRectangle(cornerRadius:16))
             .overlay(RoundedRectangle(cornerRadius:16).stroke(.white,lineWidth:3))
             .shadow(color:.black.opacity(0.5),radius:8,y:3)
