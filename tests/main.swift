@@ -68,7 +68,14 @@ let woodMask=PaperRaster.mask(woodPaper,width:pw,height:ph)
 check(woodMask[0]==255 && woodMask[pw*ph/2+pw/2]==0,"wood border separated from paper")
 let filledPaper=PaperRaster.extend(woodPaper,width:pw,height:ph,mask:woodMask)
 check(filledPaper[0]>150 && filledPaper[2]>150,"wood replaced by local paper")
-check((0..<(pw*ph)).allSatisfy {p in woodMask[p] != 0 || (0..<4).allSatisfy {filledPaper[p*4+$0]==woodPaper[p*4+$0]}},"pixels outside mask remain exact")
+var unmaskedPixelsExact=true
+for pixel in 0..<(pw*ph) where woodMask[pixel]==0 {
+    let base:Int=pixel*4
+    for channel in 0..<4 {
+        if filledPaper[base+channel] != woodPaper[base+channel] {unmaskedPixelsExact=false}
+    }
+}
+check(unmaskedPixelsExact,"pixels outside mask remain exact")
 check(filledPaper==PaperRaster.extend(woodPaper,width:pw,height:ph,mask:woodMask),"repair is deterministic")
 var blueEdge=woodPaper
 for y in 0..<ph {for c in 0..<3 {blueEdge[(y*pw+2)*4+c]=[UInt8(35),40,120][c]}}
@@ -203,8 +210,22 @@ var haloFixture=paperImage(true)
 for y in 0..<ph {for x in 5..<24 {for c in 0..<3 {haloFixture[(y*pw+x)*4+c]=250}}}
 let haloMask=EdgeBand.mask(haloFixture,width:pw,height:ph,margin:8)
 let haloResult=PaperRaster.feathered(haloFixture,width:pw,height:ph,mask:haloMask,radius:24)
-check((0..<pw*ph).allSatisfy{p in (0..<3).allSatisfy{haloResult[p*4+$0]>=haloFixture[p*4+$0]}},"edge repair never darkens any original color channel")
-check((0..<ph).allSatisfy{y in (0..<3).allSatisfy{haloResult[(y*pw+15)*4+$0]>=250}},"bright paper inside the transition cannot turn into a gray strip")
+var noDarkenedChannels=true
+for pixel in 0..<(pw*ph) {
+    let base:Int=pixel*4
+    for channel in 0..<3 {
+        if haloResult[base+channel]<haloFixture[base+channel] {noDarkenedChannels=false}
+    }
+}
+check(noDarkenedChannels,"edge repair never darkens any original color channel")
+var brightStripPreserved=true
+for row in 0..<ph {
+    let base:Int=(row*pw+15)*4
+    for channel in 0..<3 {
+        if haloResult[base+channel]<250 {brightStripPreserved=false}
+    }
+}
+check(brightStripPreserved,"bright paper inside the transition cannot turn into a gray strip")
 var grainFixture=paperImage(true)
 for y in 30..<70 {for c in 0..<3 {grainFixture[(y*pw+5)*4+c]=20}}
 let grainMask=EdgeBand.mask(grainFixture,width:pw,height:ph,margin:8)
