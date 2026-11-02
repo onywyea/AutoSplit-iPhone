@@ -293,3 +293,36 @@ _ = droppedTracker.update(nil,signature:[],time:0.63,focusing:false)
 _ = droppedTracker.update(trackingQuad,signature:cameraSignature,time:0.84,focusing:false)
 check(droppedTracker.update(trackingQuad,signature:cameraSignature,time:1.05,focusing:false),"single missed frame does not restart stable hold")
 print("All \(passed) checks including camera hysteresis passed")
+
+let lw=120,lh=160
+var uniformSheet=[UInt8](repeating:255,count:lw*lh*4)
+for pixel in 0..<(lw*lh) {for c in 0..<3 {uniformSheet[pixel*4+c]=200}}
+let uniformCorrected=PaperLighting.correct(uniformSheet,width:lw,height:lh)
+check(uniformCorrected[0]==255 && uniformCorrected[(lh/2*lw+lw/2)*4]==255,"uniform paper becomes white")
+var shadowSheet=uniformSheet
+for y in 0..<lh {for x in 0..<lw {
+    let value:UInt8=y>lh/2 ? 170:220
+    for c in 0..<3 {shadowSheet[(y*lw+x)*4+c]=value}
+}}
+let shadowCorrected=PaperLighting.correct(shadowSheet,width:lw,height:lh)
+check(shadowCorrected[(lh/4*lw+lw/2)*4]>245 && shadowCorrected[(lh*3/4*lw+lw/2)*4]>245,"both sides of broad shadow normalize")
+var denseCopy=uniformSheet
+for y in 12..<(lh-12) {for x in 10..<(lw-10) {
+    let value:UInt8=(x+y)%2==0 ? 140:180
+    for c in 0..<3 {denseCopy[(y*lw+x)*4+c]=value}
+}}
+let denseCorrected=PaperLighting.correct(denseCopy,width:lw,height:lh)
+check(denseCorrected[(lh/2*lw+lw/2)*4]<200,"dense photocopy is not mistaken for white paper")
+var blueSheet=uniformSheet
+let mark=(lh/2*lw+lw/2)*4
+blueSheet[mark]=20;blueSheet[mark+1]=40;blueSheet[mark+2]=140
+let blueCorrected=PaperLighting.correct(blueSheet,width:lw,height:lh)
+check(Int(blueCorrected[mark+2])-Int(blueCorrected[mark])>100,"blue ink remains blue under illumination correction")
+var lightOnly=true,alphaExact=true
+for pixel in 0..<(lw*lh) {
+    for c in 0..<3 {if denseCorrected[pixel*4+c]<denseCopy[pixel*4+c] {lightOnly=false}}
+    if denseCorrected[pixel*4+3] != denseCopy[pixel*4+3] {alphaExact=false}
+}
+check(lightOnly && alphaExact,"lighting does not add dark halos or alter alpha")
+check(PaperLighting.correct([0,1,2],width:120,height:160)==[0,1,2],"invalid lighting buffer is rejected")
+print("All \(passed) checks including local paper lighting passed")

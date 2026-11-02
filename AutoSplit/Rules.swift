@@ -644,3 +644,156 @@ enum PDFCompression:String,CaseIterable,Identifiable {
         }
     }
 }
+
+// Illumination is estimated from flat paper, not from portraits or glyphs.
+// This changes only a smooth multiplicative lighting field; no image synthesis.
+enum PaperLighting {
+    static func correct(_ rgba:[UInt8],width:Int,height:Int)->[UInt8] {
+        guard width>=32,height>=32,rgba.count==width*height*4 else {return rgba}
+        let factor=min(1.0,900.0/Double(max(width,height)))
+        let w=max(1,Int(Double(width)*factor)),h=max(1,Int(Double(height)*factor))
+        var pixels=[Double](repeating:0,count:w*h*3)
+        var gray=[Double](repeating:0,count:w*h)
+        for y in 0..<h {for x in 0..<w {
+            let sx=min(width-1,Int((Double(x)+0.5)*Double(width)/Double(w)))
+            let sy=min(height-1,Int((Double(y)+0.5)*Double(height)/Double(h)))
+            let source=(sy*width+sx)*4,target=(y*w+x)*3
+            var sum=0.0
+            for c in 0..<3 {let value=Double(rgba[source+c]);pixels[target+c]=value;sum+=value}
+            gray[y*w+x]=sum/3.0
+        }}
+        func percentile(_ values:[Double],_ fraction:Double)->Double {
+            guard !values.isEmpty else {return 230.0}
+            let sorted=values.sorted()
+            let rank=max(0,min(sorted.count-1,Int(ceil(Double(sorted.count)*fraction))-1))
+            return sorted[rank]
+        }
+        let knots=32,gw=36,gh=48
+        func edge(_ horizontal:Bool,_ far:Bool)->[[Double]] {
+            var profile=[[Double]]()
+            for index in 0..<knots {
+                let t=Double(index)/Double(knots-1)
+                var red:[Double]=[],green:[Double]=[],blue:[Double]=[]
+                for delta in [-0.012,-0.006,0.0,0.006,0.012] {
+                    for depth in [0.016,0.022,0.028,0.034,0.040] {
+                        let along=min(1.0,max(0.0,t+delta))
+                        let x=horizontal ? along:(far ? 1.0-depth:depth)
+                        let y=horizontal ? (far ? 1.0-depth:depth):along
+                        let ix=min(w-1,Int(x*Double(w-1))),iy=min(h-1,Int(y*Double(h-1)))
+                        let base=(iy*w+ix)*3
+                        let r=pixels[base],g=pixels[base+1],b=pixels[base+2]
+                        let spread=max(r,max(g,b))-min(r,min(g,b))
+                        if r+g+b>240.0 && spread<55.0 {red.append(r);green.append(g);blue.append(b)}
+                    }
+                }
+                profile.append([percentile(red,0.70),percentile(green,0.70),percentile(blue,0.70)])
+            }
+            return profile
+        }
+        var top=edge(true,false),bottom=edge(true,true),left=edge(false,false),right=edge(false,true)
+        for c in 0..<3 {
+            let tl=(top[0][c]+left[0][c])/2.0,tr=(top[knots-1][c]+right[0][c])/2.0
+            let bl=(bottom[0][c]+left[knots-1][c])/2.0,br=(bottom[knots-1][c]+right[knots-1][c])/2.0
+            top[0][c]=tl;left[0][c]=tl;top[knots-1][c]=tr;right[0][c]=tr
+            bottom[0][c]=bl;left[knots-1][c]=bl;bottom[knots-1][c]=br;right[knots-1][c]=br
+        }
+        func interpolate(_ profile:[[Double]],_ t:Double,_ c:Int)->Double {
+            let p=t*Double(knots-1),a=min(knots-1,Int(p)),b=min(knots-1,a+1)
+            let f=p-Double(a)
+            return profile[a][c]*(1.0-f)+profile[b][c]*f
+        }
+        var field=[Double](repeating:230.0,count:gw*gh*3)
+        for y in 0..<gh {for x in 0..<gw {
+            let u=Double(x)/Double(gw-1),v=Double(y)/Double(gh-1)
+            for c in 0..<3 {
+                let horizontal=(1.0-v)*interpolate(top,u,c)+v*interpolate(bottom,u,c)
+                let vertical=(1.0-u)*interpolate(left,v,c)+u*interpolate(right,v,c)
+                let upper=(1.0-u)*top[0][c]+u*top[knots-1][c]
+                let lower=(1.0-u)*bottom[0][c]+u*bottom[knots-1][c]
+                let corner=(1.0-v)*upper+v*lower
+                field[(y*gw+x)*3+c]=min(255.0,max(80.0,horizontal+vertical-corner))
+            }
+        }}
+        let initial=field
+        // Integral moments keep the flat-paper test cheap and bounded in memory.
+        let stride=w+1
+        var sums=[Double](repeating:0,count:(w+1)*(h+1)),squares=sums
+        for y in 0..<h {
+            var row=0.0,rowSquared=0.0
+            for x in 0..<w {
+                let value=gray[y*w+x];row+=value;rowSquared+=value*value
+                sums[(y+1)*stride+x+1]=sums[y*stride+x+1]+row
+                squares[(y+1)*stride+x+1]=squares[y*stride+x+1]+rowSquared
+            }
+        }
+        func areaSum(_ integral:[Double],_ x0:Int,_ y0:Int,_ x1:Int,_ y1:Int)->Double {
+            return integral[y1*stride+x1]-integral[y0*stride+x1]-integral[y1*stride+x0]+integral[y0*stride+x0]
+        }
+        var flat=[Bool](repeating:false,count:w*h)
+        for y in 0..<h {for x in 0..<w {
+            let x0=max(0,x-3),x1=min(w,x+4),y0=max(0,y-3),y1=min(h,y+4)
+            let count=Double((x1-x0)*(y1-y0))
+            let mean=areaSum(sums,x0,y0,x1,y1)/count
+            let variance=max(0.0,areaSum(squares,x0,y0,x1,y1)/count-mean*mean)
+            let base=(y*w+x)*3
+            let r=pixels[base],g=pixels[base+1],b=pixels[base+2]
+            let spread=max(r,max(g,b))-min(r,min(g,b))
+            flat[y*w+x]=variance<9.0 && spread<45.0 && gray[y*w+x]>90.0
+        }}
+        let radius=max(4,Int(Double(min(w,h))*0.018))
+        var known=[Bool](repeating:false,count:gw*gh)
+        var donors=0
+        for y in 0..<gh {for x in 0..<gw {
+            let cx=x*(w-1)/(gw-1),cy=y*(h-1)/(gh-1)
+            let x0=max(0,cx-radius),x1=min(w,cx+radius+1),y0=max(0,cy-radius),y1=min(h,cy+radius+1)
+            var red:[Double]=[],green:[Double]=[],blue:[Double]=[]
+            for yy in y0..<y1 {for xx in x0..<x1 where flat[yy*w+xx] {
+                let base=(yy*w+xx)*3
+                red.append(pixels[base]);green.append(pixels[base+1]);blue.append(pixels[base+2])
+            }}
+            guard red.count*4>=(x1-x0)*(y1-y0) else {continue}
+            let paper=[percentile(red,0.75),percentile(green,0.75),percentile(blue,0.75)]
+            let base=(y*gw+x)*3
+            let expected=(field[base]+field[base+1]+field[base+2])/3.0
+            let measured=(paper[0]+paper[1]+paper[2])/3.0
+            let ratio=measured/expected
+            if ratio>0.86 && ratio<1.15 {
+                for c in 0..<3 {field[base+c]=paper[c]}
+                known[y*gw+x]=true;donors+=1
+            }
+        }}
+        // Dense copies and portraits: use only outer paper illumination.
+        // Letting their gray content act as white paper produces bleached faces.
+        if Double(donors)<Double(gw*gh)*0.60 {field=initial;known=[Bool](repeating:false,count:gw*gh)}
+        for _ in 0..<150 {
+            var next=field
+            for y in 1..<(gh-1) {for x in 1..<(gw-1) where !known[y*gw+x] {
+                let base=(y*gw+x)*3
+                for c in 0..<3 {
+                    let upper=field[base-gw*3+c],lower=field[base+gw*3+c]
+                    let before=field[base-3+c],after=field[base+3+c]
+                    next[base+c]=(upper+lower+before+after)/4.0
+                }
+            }}
+            field=next
+        }
+        var output=rgba
+        for y in 0..<height {
+            let py=max(0.0,min(Double(gh-1),(Double(y)+0.5)*Double(gh)/Double(height)-0.5))
+            let y0=Int(py),y1=min(gh-1,y0+1),fy=py-Double(y0)
+            for x in 0..<width {
+                let px=max(0.0,min(Double(gw-1),(Double(x)+0.5)*Double(gw)/Double(width)-0.5))
+                let x0=Int(px),x1=min(gw-1,x0+1),fx=px-Double(x0)
+                let base=(y*width+x)*4
+                for c in 0..<3 {
+                    let upper=field[(y0*gw+x0)*3+c]*(1.0-fx)+field[(y0*gw+x1)*3+c]*fx
+                    let lower=field[(y1*gw+x0)*3+c]*(1.0-fx)+field[(y1*gw+x1)*3+c]*fx
+                    let light=min(255.0,max(80.0,upper*(1.0-fy)+lower*fy))
+                    let value=Double(rgba[base+c])*255.0/light
+                    output[base+c]=UInt8(min(255.0,max(0.0,value.rounded())))
+                }
+            }
+        }
+        return output
+    }
+}

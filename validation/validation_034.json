@@ -1,0 +1,36 @@
+{
+  "version": "0.3.4",
+  "build": 17,
+  "swift_syntax_files": 20,
+  "swift_parser_errors": 0,
+  "package_check": "passed",
+  "native_compilation": "not available",
+  "native_tests": "added; not executed locally",
+  "python_reference_metrics": {
+    "14": [
+      {
+        "upper_blank": 223.9300664300664,
+        "lower_blank": 201.18801346801348
+      },
+      {
+        "upper_blank": 253.30689780689784,
+        "lower_blank": 253.24099887766556
+      }
+    ],
+    "18": [
+      {
+        "before_relative_contrast": 0.39692350305873975,
+        "after_relative_contrast": 0.39805094515225625
+      },
+      {
+        "before_relative_contrast": 0.3860444626100898,
+        "after_relative_contrast": 0.3871837271020211
+      }
+    ]
+  },
+  "limitations": [
+    "Manual inset crop for illumination comparison; not automatic detector validation.",
+    "Python reference approximates Swift logic; not an iPhone render.",
+    "Residual fold and photocopy texture remain."
+  ]
+}

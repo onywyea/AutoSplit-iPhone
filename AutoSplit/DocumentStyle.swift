@@ -3,7 +3,7 @@ import SwiftUI
 extension Finish {
     var detail:String {
         switch self {
-        case .white: return "Освітлює папір і тіні, зберігає кольорові печатки. Стандартний стиль нових фото."
+        case .white: return "Локальне вирівнювання освітлення паперу. На щільних копіях оцінює світло за полями аркуша."
         case .natural: return "Залишає кольори й освітлення оригіналу."
         case .clean: return "Легке підсилення контрасту."
         case .mono: return "Чорно-білий вигляд для текстових сторінок."
