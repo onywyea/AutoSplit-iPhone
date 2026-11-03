@@ -864,24 +864,50 @@ enum DocumentDetail {
         var luminance=[UInt16](repeating:0,count:count)
         for p in 0..<count {
             let i=p*4
-            luminance[p]=UInt16((54*Int(rgba[i])+183*Int(rgba[i+1])+19*Int(rgba[i+2])+128)/256)
+            let red:Int=Int(rgba[i])
+            let green:Int=Int(rgba[i+1])
+            let blue:Int=Int(rgba[i+2])
+            let redPart:Int=54*red
+            let greenPart:Int=183*green
+            let bluePart:Int=19*blue
+            let redGreen:Int=redPart+greenPart
+            let weighted:Int=redGreen+bluePart
+            let rounded:Int=weighted+128
+            let gray:Int=rounded/256
+            luminance[p]=UInt16(gray)
         }
         var horizontal=[UInt16](repeating:0,count:count)
         for y in 0..<height {for x in 0..<width {
             let p=y*width+x,l=y*width+max(0,x-1),r=y*width+min(width-1,x+1)
-            horizontal[p]=luminance[l]+2*luminance[p]+luminance[r]
+            let left:Int=Int(luminance[l])
+            let middle:Int=Int(luminance[p])*2
+            let right:Int=Int(luminance[r])
+            let partial:Int=left+middle
+            horizontal[p]=UInt16(partial+right)
         }}
         var output=rgba
         for y in 1..<(height-1) {for x in 1..<(width-1) {
             let p=y*width+x
             let center=Int(luminance[p])
             guard center>18 else {continue}
-            let mean=Double(Int(horizontal[p-width])+2*Int(horizontal[p])+Int(horizontal[p+width]))/16.0
+            let upper:Int=Int(horizontal[p-width])
+            let middle:Int=Int(horizontal[p])*2
+            let lower:Int=Int(horizontal[p+width])
+            let firstSum:Int=upper+middle
+            let total:Int=firstSum+lower
+            let mean:Double=Double(total)/16.0
             let detail=mean-Double(center)
             guard detail>2.0 else {continue}
-            let gradient=abs(Int(luminance[p+1])-Int(luminance[p-1]))+abs(Int(luminance[p+width])-Int(luminance[p-width]))
-            let l=Int(luminance[p-1]),r=Int(luminance[p+1]),t=Int(luminance[p-width]),b=Int(luminance[p+width])
-            let span=max(l,max(r,max(t,b)))-min(l,min(r,min(t,b)))
+            let l:Int=Int(luminance[p-1])
+            let r:Int=Int(luminance[p+1])
+            let t:Int=Int(luminance[p-width])
+            let b:Int=Int(luminance[p+width])
+            let horizontalEdge:Int=abs(r-l)
+            let verticalEdge:Int=abs(b-t)
+            let gradient:Int=horizontalEdge+verticalEdge
+            let low:Int=min(min(l,r),min(t,b))
+            let high:Int=max(max(l,r),max(t,b))
+            let span:Int=high-low
             guard gradient>=12 || span>=12 else {continue}
             let adjustment=Int(min(12.0,(detail-2.0)*0.70).rounded())
             guard adjustment>0 else {continue}

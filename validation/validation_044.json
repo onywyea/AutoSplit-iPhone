@@ -1,0 +1,13 @@
+{
+  "version": "0.4.4",
+  "build": 23,
+  "reported_failure": "Swift type-check timeout in Rules.swift:867, weighted luminance expression",
+  "reported_sdk": "iOS 26.5, setup passed in user log",
+  "fix": "Split weighted luminance, horizontal filter, vertical mean and neighbor range into explicitly typed scalar operations",
+  "swift_syntax_files": 24,
+  "syntax_errors": 0,
+  "RGB_luminance_equivalence": "all 16,777,216 8-bit RGB triples checked in Python; identical integer results",
+  "native_compilation": "not available locally; fixed CI build not yet confirmed",
+  "native_tests": "not run here",
+  "icon_and_theme": "preserved from 0.4.3"
+}
