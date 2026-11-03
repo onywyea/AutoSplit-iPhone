@@ -3,16 +3,49 @@ on:
   workflow_dispatch:
 jobs:
   build:
-    runs-on: macos-15-intel
+    runs-on: macos-26-intel
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v4
-      - name: Check document classification rules
+      - name: Select installed Xcode for Liquid Glass
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import glob, os, re, plistlib
+          candidates=glob.glob('/Applications/Xcode*.app')
+          def version(path):
+              try:
+                  with open(path+'/Contents/Info.plist','rb') as stream:
+                      label=plistlib.load(stream).get('CFBundleShortVersionString','')
+              except (OSError,ValueError):
+                  label=os.path.basename(path)
+              numbers=re.findall(r'\d+',label)
+              return tuple(int(n) for n in numbers) if numbers else (0,)
+          modern=[p for p in candidates if (26,)<=version(p)<(27,) and 'beta' not in p.lower()]
+          if modern:
+              chosen=max(modern,key=version)+'/Contents/Developer'
+              with open(os.environ['GITHUB_ENV'],'a') as stream:
+                  stream.write('DEVELOPER_DIR='+chosen+'\n')
+              print('Using '+chosen)
+          else:
+              raise SystemExit('::error::Stable Xcode 26 is missing. Use macos-26-intel and the complete workflow from ScanFlow 0.4.2.')
+          PYCODE
+      - name: Verify Liquid Glass SDK
+        run: |
+          xcodebuild -version
+          python3 - <<'PYCODE'
+          import subprocess
+          sdk=subprocess.check_output(['xcrun','--sdk','iphoneos','--show-sdk-version'],text=True).strip()
+          if int(sdk.split('.')[0])<26:
+              raise SystemExit('::error::iOS SDK 26+ required for Liquid Glass. Update the workflow.')
+          print('Liquid Glass build: iOS SDK '+sdk)
+          PYCODE
+      - name: Check scanner core
         run: |
           python3 scripts/check_package.py
-          swiftc AutoSplit/Rules.swift tests/main.swift -o rule-tests
-          ./rule-tests
+          swiftc AutoSplit/Rules.swift tests/main.swift -o core-tests
+          ./core-tests
       - name: Generate Xcode project
         run: |
           brew install xcodegen
