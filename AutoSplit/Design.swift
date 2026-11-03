@@ -27,7 +27,7 @@ extension View {
 struct ScanMark:View {
     var body:some View {
         ZStack {
-            RoundedRectangle(cornerRadius:13).fill(LinearGradient(colors:[Color(red:0.30,green:0.85,blue:0.73),Color.accent],startPoint:.topLeading,endPoint:.bottomTrailing))
+            RoundedRectangle(cornerRadius:13).fill(LinearGradient(colors:[Color(red:1,green:0.67,blue:0.39),Color(red:0.91,green:0.25,blue:0.08)],startPoint:.topLeading,endPoint:.bottomTrailing))
             RoundedRectangle(cornerRadius:13).stroke(.white.opacity(0.35),lineWidth:1)
             Image(systemName:"doc.viewfinder").font(.system(size:25,weight:.medium)).foregroundStyle(.white).shadow(color:.black.opacity(0.18),radius:1,y:2)
         }.frame(width:44,height:44).accessibilityHidden(true)
@@ -49,6 +49,6 @@ struct PageReviewBadge:View {
     let page:Leaf
     var body:some View {
         Label(page.reviewReason ?? (page.reviewed==true ? "Перевірено вами":"Перевірки завершено"),systemImage:page.reviewReason == nil ? "checkmark.circle":"exclamationmark.circle")
-            .font(.caption).foregroundStyle(page.reviewReason == nil ? Color.accent:Color.orange)
+            .font(.caption).foregroundStyle(page.reviewReason == nil ? Color.scanSuccess:Color.accent)
     }
 }

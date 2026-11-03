@@ -1,0 +1,39 @@
+{
+  "version": "0.4.2",
+  "build": 21,
+  "swift_files_parsed": 24,
+  "swift_syntax_errors": 0,
+  "workflow": "YAML parsed; selector and SDK check Python parse; macos-26-intel and explicit Xcode 26 requirement",
+  "opaque_palette_contrast": {
+    "opaque_action_white_text": 4.897704365795448,
+    "light_accent_on_card": 5.928506906328493,
+    "dark_accent_on_card": 8.307596087945686
+  },
+  "core_unchanged_from_041": [
+    "Rules",
+    "Pipeline",
+    "Store",
+    "Models",
+    "PDFExport"
+  ],
+  "previous_log_core_checks": 179,
+  "native_compilation": "not run; no Xcode locally",
+  "native_visual_and_device_performance": "not run",
+  "native_glass_contrast": "not measured; depends on system backdrop",
+  "new_ui": [
+    "warm-light/graphite-dark palette",
+    "coral accent",
+    "standalone lazy document cards",
+    "glass/glassProminent capsule controls",
+    "AppearanceSheet with effective rendering mode",
+    "visible theme choice",
+    "new capsule page filters"
+  ],
+  "review_required": [
+    "compile on Xcode 26",
+    "iPhone compact width and Dynamic Type",
+    "Reduce Transparency",
+    "native glass appearance under light/dark backgrounds",
+    "capture and export regression"
+  ]
+}

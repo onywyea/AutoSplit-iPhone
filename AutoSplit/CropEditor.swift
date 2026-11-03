@@ -95,7 +95,10 @@ struct PageEditor:View {
         .overlay { if store.busy { ProgressView().padding(24).background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)) } }
     }
     func tool(_ title:String,_ icon:String,action:@escaping()->Void)->some View {
-        Button(action:action){VStack(spacing:8){Image(systemName:icon).font(.title3);Text(title).font(.caption)}}.tint(.primary)
+        VStack(spacing:7) {
+            Button(action:action) {Image(systemName:icon).font(.title3).frame(width:28,height:44)}.scanSecondaryButton().accessibilityLabel(title)
+            Text(title).font(.caption).foregroundStyle(.secondary)
+        }
     }
     func queuePreview() {
         previewDebounce?.cancel()

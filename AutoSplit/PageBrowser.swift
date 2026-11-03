@@ -57,12 +57,8 @@ struct PageBrowser:View {
                             .disabled(!pages.contains(where:{$0.id != selection && $0.reviewReason != nil}))
                         Button {step(1)} label:{Image(systemName:"chevron.right").frame(width:44,height:44)}.disabled(position+1>=pages.count)
                     }
-                    HStack(spacing:0) {
-                        action("Обрізка","crop") {cropNow=true;editing=true}
-                        action("Поворот","rotate.right") {rotatePage()}
-                        action("Вигляд","slider.horizontal.3") {cropNow=false;editing=true}
-                        action("PDF","square.and.arrow.up") {exporting=true}
-                    }.padding(6).scanGlass()
+                    toolsDock
+
                 }.padding(.horizontal,14).padding(.bottom,8).disabled(store.busy)
 
             } else {ContentUnavailableView("Немає сторінок",systemImage:"doc")}
@@ -98,8 +94,22 @@ struct PageBrowser:View {
             if !ids.contains(selection),let first=ids.first {selection=first}
         }
     }
+    private var toolsDock:some View {
+        ScanControls {
+            HStack(spacing:4) {
+                action("Обрізка","crop") {cropNow=true;editing=true}
+                action("Поворот","rotate.right") {rotatePage()}
+                action("Вигляд","slider.horizontal.3") {cropNow=false;editing=true}
+                action("PDF","square.and.arrow.up") {exporting=true}
+            }.padding(.vertical,8)
+        }
+    }
     private func action(_ title:String,_ icon:String,perform:@escaping ()->Void)->some View {
-        Button(action:perform) {VStack(spacing:5) {Image(systemName:icon).font(.title3);Text(title).font(.caption2)}.frame(maxWidth:.infinity,minHeight:48)}.buttonStyle(.plain).foregroundStyle(Color.accent)
+        VStack(spacing:6) {
+            Button(action:perform) {Image(systemName:icon).font(.title3).frame(width:26,height:44)}
+                .scanSecondaryButton().accessibilityLabel(title)
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+        }.frame(maxWidth:.infinity)
     }
     private func nextIssue() {
         guard !pages.isEmpty else {return}

@@ -1,15 +1,11 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-extension Color {
-    static let canvas=Color(uiColor:.systemGroupedBackground)
-    static let card=Color(uiColor:.secondarySystemGroupedBackground)
-    static let accent=Color(red:0.09,green:0.55,blue:0.49)
-}
 @main
 struct ScanFlowApp:App {
     @StateObject private var store=ScannerStore()
-    var body:some Scene { WindowGroup { LibraryView().environmentObject(store).environment(\.locale,Locale(identifier:"uk_UA")).tint(.accent) } }
+    @AppStorage("scanflow.appearance") private var appearance="system"
+    var body:some Scene { WindowGroup { LibraryView().environmentObject(store).environment(\.locale,Locale(identifier:"uk_UA")).tint(.accent).preferredColorScheme(appearance=="dark" ? .dark:(appearance=="light" ? .light:nil)) } }
 }
 struct LibraryView:View {
     @EnvironmentObject var store:ScannerStore
@@ -22,6 +18,7 @@ struct LibraryView:View {
     @State private var deleting=false
     @State private var renaming:ScanDocument?
     @State private var importing=false
+    @State private var appearancePresented=false
     @State private var newCapture:UUID?
     @AppStorage("scanflow.lastDocument") private var lastDocument=""
     var resume:ScanDocument? {
@@ -51,14 +48,15 @@ struct LibraryView:View {
             .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true, onCompletion:importResult)
             .sheet(isPresented:$handingOff) {HandoffView(ids:selected)}
             .sheet(isPresented:$exporting) {PDFExportSheet(ids:selected)}
+            .sheet(isPresented:$appearancePresented) {AppearanceSheet()}
             .sheet(item:$renaming) {document in NameSheet(documentID:document.id)}
     }
     private var libraryScreen:some View {
         libraryList
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Color.canvas)
-            .navigationTitle("Документи")
+            .background(ScanBackdrop())
+            .navigationTitle("ScanFlow")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden,for:.navigationBar)
             .searchable(text:$search,prompt:"ПІБ або назва документа")
             .toolbar {libraryToolbar}
             .safeAreaInset(edge:.bottom) {bottomBar}
@@ -67,7 +65,8 @@ struct LibraryView:View {
             .onChange(of:store.documents.map(\.id)) {_,ids in selected.formIntersection(Set(ids))}
     }
     private var libraryList:some View {
-        List {
+        ScrollView {
+            LazyVStack(alignment:.leading,spacing:14) {
             if !selecting && search.isEmpty {
                 LibraryBrandSection()
                 if let document=resume {
@@ -75,15 +74,15 @@ struct LibraryView:View {
                 }
             }
             documentSection
+            }.padding(.horizontal,18).padding(.vertical,12)
         }
     }
     @ViewBuilder private var documentSection:some View {
         if filtered.isEmpty {
             LibraryEmptyState(searching:!search.isEmpty)
         } else {
-            Section {
-                ForEach(filtered) {document in documentButton(document)}
-            } header: {Text(sectionTitle)}
+            Text(sectionTitle).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top,8)
+            ForEach(filtered) {document in documentButton(document)}
         }
     }
     private var sectionTitle:String {selecting ? "Вибрано: \(selected.count)":"Документів: \(filtered.count)"}
@@ -109,6 +108,7 @@ struct LibraryView:View {
         }
         ToolbarItem(placement:.topBarLeading) {
             if selecting {Button("Усі") {selected=Set(filtered.map(\.id))}.disabled(store.busy)}
+            else {Button {appearancePresented=true} label:{Image(systemName:"paintpalette")}.accessibilityLabel("Вигляд і Liquid Glass")}
         }
     }
     private var errorPresented:Binding<Bool> {
@@ -132,26 +132,33 @@ struct LibraryView:View {
     }
     private func toggle(_ id:UUID) {if selected.contains(id){selected.remove(id)}else{selected.insert(id)}}
     private var bottomBar:some View {
-        VStack(spacing:10) {
-            if store.busy {HStack{ProgressView();Text(store.status).font(.caption).lineLimit(1)}}
-            if selecting {
-                HStack {
-                    Button(role:.destructive){deleting=true}label:{Label("Видалити",systemImage:"trash").font(.subheadline)}
-                    Spacer()
-                    Menu {
-                        Button{exporting=true}label:{Label("Експорт / стиснення PDF",systemImage:"doc.zipper")}
-                        Button{handingOff=true}label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
-                    } label:{Label("Експорт",systemImage:"square.and.arrow.up").font(.subheadline.weight(.semibold))}
-                }.frame(minHeight:44).disabled(selected.isEmpty || store.busy)
-            } else {
-                HStack(spacing:12) {
-                Button {importing=true} label:{Image(systemName:"square.and.arrow.down").frame(width:44,height:44)}.accessibilityLabel("Імпорт фото або PDF").disabled(store.busy)
-                Button{let id=store.newDocument();newCapture=id;path.append(id)}label:{Label("Новий скан",systemImage:"camera").font(.headline).frame(maxWidth:.infinity,minHeight:44)}
-                    .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius:16)).disabled(store.busy)
-                }
-            }
-        }.padding(12).scanGlass().padding(.horizontal,16).padding(.vertical,8)
+        ScanControls {
+            VStack(spacing:10) {
+                if store.busy {HStack {ProgressView();Text(store.status).font(.caption).lineLimit(1)}}
+                if selecting {selectionDock}else{captureDock}
+            }.padding(.horizontal,18).padding(.vertical,10)
+        }
     }
+    private var captureDock:some View {
+        HStack(spacing:12) {
+            Button {importing=true} label:{Image(systemName:"square.and.arrow.down").frame(width:34,height:44)}
+                .scanSecondaryButton().accessibilityLabel("Імпорт фото або PDF").disabled(store.busy)
+            Button {let id=store.newDocument();newCapture=id;path.append(id)} label:{
+                Label("Новий скан",systemImage:"camera.fill").font(.headline).frame(maxWidth:.infinity,minHeight:44)
+            }.scanPrimaryButton().disabled(store.busy)
+        }
+    }
+    private var selectionDock:some View {
+        HStack(spacing:12) {
+            Button(role:.destructive) {deleting=true} label:{Label("Видалити",systemImage:"trash").foregroundStyle(.red)}.scanSecondaryButton()
+            Spacer(minLength:0)
+            Menu {
+                Button {exporting=true} label:{Label("Експорт / стиснення PDF",systemImage:"doc.zipper")}
+                Button {handingOff=true} label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
+            } label:{Label("Експорт",systemImage:"square.and.arrow.up").font(.subheadline.weight(.semibold))}.scanSecondaryButton()
+        }.disabled(selected.isEmpty || store.busy)
+    }
+
 }
 struct Thumb:View {
     let file:String?

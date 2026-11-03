@@ -34,7 +34,7 @@ struct DocumentView:View {
                     if store.busy {workingBar}
                     if ordering {orderList}
                     else {pageGrid(doc)}
-                }.background(Color.canvas)
+                }.background(ScanBackdrop())
                 .safeAreaInset(edge:.bottom) {actionBar}
             } else {ContentUnavailableView("Скан недоступний",systemImage:"doc")}
         }
@@ -83,15 +83,11 @@ struct DocumentView:View {
                 if pages.isEmpty {
                     ContentUnavailableView("Додайте першу сторінку",systemImage:"doc.viewfinder",description:Text("Скануйте серією або імпортуйте фото та PDF."))
                 } else {
-                    Picker("Показати сторінки",selection:$filter) {
-                        Text("Усі").tag(0)
-                        Text("Перевірити").tag(1)
-                        Text("Готові").tag(2)
-                    }.pickerStyle(.segmented)
+                    WorkspaceFilters(selection:$filter)
                     if !issues.isEmpty && !selecting {
                         NavigationLink {PageBrowser(documentID:documentID,initialPageID:issues[0].id)} label:{
                             Label("Перевірити проблемні",systemImage:"viewfinder").font(.subheadline.weight(.semibold)).frame(maxWidth:.infinity,minHeight:44)
-                        }.buttonStyle(.bordered)
+                        }.scanSecondaryButton()
                     }
                     if selecting {
                         HStack {
@@ -125,8 +121,8 @@ struct DocumentView:View {
             }
             Text("Сторінка \((pages.firstIndex(where:{$0.id==page.id}) ?? 0)+1)").font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
             PageReviewBadge(page:page).lineLimit(2).frame(maxWidth:.infinity,alignment:.leading)
-        }.padding(10).background(Color.card,in:RoundedRectangle(cornerRadius:17))
-            .overlay(RoundedRectangle(cornerRadius:17).stroke(selected.contains(page.id) && selecting ? Color.accent:.clear,lineWidth:2))
+        }.padding(10).scanCard(radius:22)
+            .overlay(RoundedRectangle(cornerRadius:22).stroke(selected.contains(page.id) && selecting ? Color.accent:.clear,lineWidth:2))
     }
     private var orderList:some View {
         List {
@@ -145,17 +141,19 @@ struct DocumentView:View {
             if !removed.isEmpty {
                 Button {store.restorePages(documentID,removed:removed);removed=[]} label:{Label("Скасувати видалення · \(removed.count)",systemImage:"arrow.uturn.backward").font(.subheadline).frame(minHeight:44)}.disabled(blocked)
             }
+            ScanControls {
             HStack(spacing:12) {
                 if selecting {
-                    Button(role:.destructive) {deletingPages=true} label:{Label("Видалити",systemImage:"trash")}.disabled(selected.isEmpty || blocked)
+                    Button(role:.destructive) {deletingPages=true} label:{Label("Видалити",systemImage:"trash").foregroundStyle(.red)}.scanSecondaryButton().disabled(selected.isEmpty || blocked)
                     Spacer(minLength:0)
-                    Button {styleTargets=selected;styling=true} label:{Label("Стиль · \(selected.count)",systemImage:"slider.horizontal.3")}.disabled(selected.isEmpty || blocked)
+                    Button {styleTargets=selected;styling=true} label:{Label("Стиль · \(selected.count)",systemImage:"slider.horizontal.3")}.scanSecondaryButton().disabled(selected.isEmpty || blocked)
                 } else {
-                    Button {importing=true} label:{Image(systemName:"square.and.arrow.down").frame(width:44,height:44)}.accessibilityLabel("Імпорт PDF або фото")
-                    Button {capturing=true} label:{Label(pages.isEmpty ? "Сканувати":"Додати",systemImage:"camera").frame(maxWidth:.infinity,minHeight:44)}.buttonStyle(.borderedProminent)
-                    Button {exporting=true} label:{Image(systemName:"square.and.arrow.up").frame(width:44,height:44)}.disabled(pages.isEmpty).accessibilityLabel("Експорт PDF")
+                    Button {importing=true} label:{Image(systemName:"square.and.arrow.down").frame(width:44,height:44)}.scanSecondaryButton().accessibilityLabel("Імпорт PDF або фото")
+                    Button {capturing=true} label:{Label(pages.isEmpty ? "Сканувати":"Додати",systemImage:"camera").frame(maxWidth:.infinity,minHeight:44)}.scanPrimaryButton()
+                    Button {exporting=true} label:{Image(systemName:"square.and.arrow.up").frame(width:44,height:44)}.scanSecondaryButton().disabled(pages.isEmpty).accessibilityLabel("Експорт PDF")
                 }
-            }.font(.subheadline.weight(.semibold)).padding(12).scanGlass().disabled(blocked)
+            }.font(.subheadline.weight(.semibold)).padding(.vertical,6).disabled(blocked)
+            }
         }.padding(.horizontal,16).padding(.vertical,8)
     }
     private var documentMenu:some View {

@@ -458,7 +458,7 @@ struct CaptureView:View {
                             if index==0 {path.move(to:p)}else{path.addLine(to:p)}
                         }
                         path.closeSubpath()
-                    }.stroke(.mint,lineWidth:2)
+                    }.stroke(engine.focusReady ? Color.scanSuccess:Color.accent,lineWidth:2)
                 }
             }.ignoresSafeArea().clipped().allowsHitTesting(false)
             VStack {

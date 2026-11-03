@@ -2,64 +2,82 @@ import SwiftUI
 
 struct LibraryBrandSection:View {
     var body:some View {
-        Section {
-            HStack(spacing:12) {
-                ScanMark()
-                VStack(alignment:.leading,spacing:3) {
-                    Text("ScanFlow").font(.headline)
-                    Text("Скануйте серією. Перевіряйте вибірково.").font(.caption).foregroundStyle(.secondary)
-                }
-            }.padding(.vertical,4)
-        }.listRowBackground(Color.clear)
+        HStack(alignment:.top,spacing:12) {
+            VStack(alignment:.leading,spacing:5) {
+                Text("Ваші документи").font(.system(.title,design:.rounded,weight:.bold)).tracking(-0.7)
+                Text("Від кадру до готового PDF").font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer(minLength:0)
+            ScanMark()
+        }.padding(.vertical,6)
     }
 }
 struct LibraryResumeSection:View {
     let document:ScanDocument
     let disabled:Bool
     let open:()->Void
-    private var summary:String {
-        let count=document.pages.count
-        let pending=document.pages.filter {$0.reviewReason != nil}.count
-        return "\(count) стор. · \(pending) до перевірки"
-    }
+    private var pending:Int {document.pages.filter {$0.reviewReason != nil}.count}
     var body:some View {
-        Section("Продовжити комплект") {
-            Button(action:open) {
-                VStack(alignment:.leading,spacing:9) {
-                    Text(document.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
-                    Text(summary).font(.caption).foregroundStyle(.secondary)
-                    Label("Продовжити перевірку",systemImage:"arrow.right.circle.fill").font(.subheadline.weight(.semibold))
-                }.padding(.vertical,6)
-            }.disabled(disabled)
-        }
+        Button(action:open) {
+            VStack(alignment:.leading,spacing:14) {
+                HStack {
+                    Label("ПРОДОВЖИТИ",systemImage:"clock.arrow.circlepath").font(.caption2.weight(.bold)).tracking(0.8)
+                    Spacer(minLength:0)
+                    Text("\(document.pages.count) стор.").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Text(document.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
+                HStack {
+                    Text(pending>0 ? "\(pending) стор. до перевірки":"Повернутися до комплекту").font(.caption).foregroundStyle(.secondary)
+                    Spacer(minLength:0)
+                    Image(systemName:"arrow.right").font(.subheadline.weight(.semibold)).frame(width:36,height:36).background(Color.accent.opacity(0.12),in:Circle())
+                }
+            }.padding(18).scanCard(radius:24)
+        }.buttonStyle(.plain).foregroundStyle(Color.accent).disabled(disabled)
     }
 }
 struct LibraryEmptyState:View {
     let searching:Bool
     var body:some View {
-        ContentUnavailableView(searching ? "Нічого не знайдено":"Поки немає сканів",systemImage:searching ? "magnifyingglass":"doc.viewfinder",description:Text(searching ? "Спробуйте іншу назву.":"Скануйте камерою або імпортуйте PDF і фото."))
-            .listRowBackground(Color.clear)
+        VStack(spacing:14) {
+            Image(systemName:searching ? "magnifyingglass":"doc.viewfinder").font(.system(size:42,weight:.light)).foregroundStyle(Color.accent)
+            Text(searching ? "Нічого не знайдено":"Перший скан — один дотик").font(.headline)
+            Text(searching ? "Спробуйте іншу назву.":"Натисніть «Новий скан» або імпортуйте готовий файл.").font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }.frame(maxWidth:.infinity).padding(.vertical,42).padding(.horizontal,20).scanCard()
     }
 }
 struct LibraryDocumentRow:View {
     let document:ScanDocument
     let selecting:Bool
     let selected:Bool
-    private var summary:String {
-        let date=document.created.formatted(.dateTime.day().month(.abbreviated).year().locale(Locale(identifier:"uk_UA")))
-        return "\(document.pages.count) стор. · \(date)"
-    }
+    private var date:String {document.created.formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier:"uk_UA")))}
+    private var pending:Int {document.pages.filter {$0.reviewReason != nil}.count}
     var body:some View {
-        HStack(spacing:12) {
-            if selecting {Image(systemName:selected ? "checkmark.circle.fill":"circle").font(.title3).foregroundStyle(Color.accent)}
-            Thumb(file:document.pages.first?.output).frame(width:52,height:70).clipShape(RoundedRectangle(cornerRadius:6))
-            VStack(alignment:.leading,spacing:5) {
-                Text(document.title).font(.body.weight(.semibold)).foregroundStyle(.primary).lineLimit(2)
-                Text(summary).font(.caption).foregroundStyle(.secondary)
-                if !document.nameConfirmed && !document.candidates.isEmpty {Text("ПІБ знайдено · перевірте назву").font(.caption2).foregroundStyle(Color.accent)}
-            }
-            Spacer(minLength:0)
-            if !selecting {Image(systemName:"chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)}
-        }.padding(.vertical,5).contentShape(Rectangle())
+        HStack(spacing:15) {
+            thumbnail
+            VStack(alignment:.leading,spacing:8) {
+                Text(document.title).font(.headline).tracking(-0.2).foregroundStyle(.primary).lineLimit(2)
+                HStack(spacing:6) {
+                    Text("\(document.pages.count) стор.").font(.caption.weight(.medium)).padding(.horizontal,8).padding(.vertical,4).background(Color.canvas,in:Capsule())
+                    Text(date).font(.caption).foregroundStyle(.secondary)
+                }
+                if !document.nameConfirmed && !document.candidates.isEmpty {
+                    Text("Перевірте ПІБ").font(.caption).foregroundStyle(Color.accent)
+                } else if pending>0 {
+                    Text("До перевірки · \(pending)").font(.caption).foregroundStyle(.secondary)
+                }
+            }.frame(maxWidth:.infinity,alignment:.leading)
+            Image(systemName:selecting ? (selected ? "checkmark.circle.fill":"circle"):"arrow.up.right")
+                .font(selecting ? .title2:.subheadline.weight(.medium)).foregroundStyle(selecting ? Color.accent:Color.secondary)
+                .frame(width:28)
+        }.padding(15).scanCard(radius:24)
+            .overlay(RoundedRectangle(cornerRadius:24).stroke(selected && selecting ? Color.accent:.clear,lineWidth:2))
+            .contentShape(RoundedRectangle(cornerRadius:24))
+    }
+    private var thumbnail:some View {
+        ZStack {
+            RoundedRectangle(cornerRadius:10).fill(Color.accent.opacity(0.12)).frame(width:57,height:78).rotationEffect(.degrees(-5)).offset(x:-2)
+            Thumb(file:document.pages.first?.output).frame(width:57,height:78).background(Color.card).clipShape(RoundedRectangle(cornerRadius:9))
+                .shadow(color:.black.opacity(0.14),radius:3,y:2)
+        }.frame(width:62,height:84)
     }
 }
