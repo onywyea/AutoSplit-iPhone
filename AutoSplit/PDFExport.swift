@@ -31,11 +31,21 @@ struct PDFExportSheet:View {
     @State private var compression:PDFCompression = .original
     @State private var sharing=false
     var count:Int {store.documents.filter{ids.contains($0.id)}.reduce(0){$0+$1.pages.count}}
+    private var fullFrameCount:Int {
+        var result:Int=0
+        for doc in store.documents where ids.contains(doc.id) {
+            for page in doc.pages where page.sourceKind=="camera" && page.cropVerified != true {result+=1}
+        }
+        return result
+    }
     var body:some View {
         NavigationStack {
             Form {
                 Section {
                     Label("\(ids.count) документів · \(count) стор.",systemImage:"doc.on.doc")
+                    if fullFrameCount>0 {
+                        Text("Без автоматичних меж: \(fullFrameCount) стор. Вони збережуться повним кадром; уточнювати кути перед експортом не обов’язково.").font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Section {
                     ForEach(PDFCompression.allCases) { option in

@@ -8,6 +8,8 @@ struct PageBrowser:View {
     @State private var editing=false
     @State private var cropNow=false
     @State private var exporting=false
+    @State private var quickSharing=false
+    @State private var exportFailed=false
     @State private var removed:[(Int,Leaf)]=[]
     @State private var deleting=false
     @State private var styling=false
@@ -23,7 +25,7 @@ struct PageBrowser:View {
         VStack(spacing:0) {
             if !pages.isEmpty {
                 if let page=selectedPage,page.sourceKind=="camera",page.cropVerified != true {
-                    Button {editing=true} label:{Label("Межі не знайдено — вкажіть кути",systemImage:"crop").font(.caption.weight(.semibold)).padding(10)}.tint(.orange).disabled(store.busy)
+                    Button {editing=true} label:{Label("За бажанням уточніть краї",systemImage:"crop").font(.caption.weight(.semibold)).padding(10)}.tint(.orange).disabled(store.busy)
                 }
                 DocumentPager(pages:pages.map {BrowserPage(id:$0.id,file:$0.output)},selection:$selection)
                     .frame(maxWidth:.infinity,maxHeight:.infinity).layoutPriority(1)
@@ -50,9 +52,6 @@ struct PageBrowser:View {
                         Spacer(minLength:0)
                         if let page=selectedPage {PageReviewBadge(page:page).lineLimit(1)}
                         Spacer(minLength:0)
-                        Button {if store.confirmReview(documentID,pageID:selection) {nextIssue()}} label:{Image(systemName:selectedPage?.reviewed==true ? "checkmark.circle.fill":"checkmark.circle").frame(width:44,height:44)}
-                            .accessibilityLabel("Позначити перевіреною та перейти далі")
-                            .disabled(selectedPage?.sourceKind=="camera" && selectedPage?.cropVerified != true)
                         Button {nextIssue()} label:{Image(systemName:"arrow.right.circle").frame(width:44,height:44)}.accessibilityLabel("Наступна сторінка для перевірки")
                             .disabled(!pages.contains(where:{$0.id != selection && $0.reviewReason != nil}))
                         Button {step(1)} label:{Image(systemName:"chevron.right").frame(width:44,height:44)}.disabled(position+1>=pages.count)
@@ -70,6 +69,7 @@ struct PageBrowser:View {
         .toolbar {
             ToolbarItem(placement:.topBarTrailing) {
                 Menu {
+                    Button {exporting=true} label:{Label("Розмір / стиснення PDF",systemImage:"doc.zipper")}
                     Button {originals=true} label:{Label("Поділитися оригіналом",systemImage:"photo")}
                     Button {styling=true} label:{Label("Стиль усіх сторінок",systemImage:"slider.horizontal.3")}
                     Button {Task {await store.rotateAutomatically(documentID,pageID:selection)}} label:{Label("Автоповорот цієї сторінки",systemImage:"wand.and.stars")}
@@ -83,6 +83,9 @@ struct PageBrowser:View {
         }
         .overlay(alignment:.top) {if store.busy {HStack {ProgressView();Text(store.status).font(.caption)}.padding(10).background(.regularMaterial,in:Capsule()).padding(.top,8)}}
         .sheet(isPresented:$exporting) {PDFExportSheet(ids:[documentID])}
+        .sheet(isPresented:$quickSharing) {ShareSheet(urls:store.shareURLs)}
+        .alert("Не вдалося підготувати PDF",isPresented:$exportFailed) {Button("Зрозуміло") {store.error=nil}} message:{Text(store.error ?? "Повторіть експорт")}
+
         .sheet(isPresented:$editing,onDismiss:{cropNow=false}) {if let page=selectedPage {NavigationStack {PageEditor(documentID:documentID,leaf:page,beginCrop:cropNow || (page.sourceKind=="camera" && page.cropVerified != true))}}}
         .sheet(isPresented:$styling) {DocumentStyleSheet(documentID:documentID)}
         .sheet(isPresented:$originals) {OriginalsExportSheet(documentID:documentID,pageID:selection)}
@@ -94,13 +97,20 @@ struct PageBrowser:View {
             if !ids.contains(selection),let first=ids.first {selection=first}
         }
     }
+    private func savePDF() {
+        Task {
+            await store.export([documentID])
+            if store.error != nil {exportFailed=true}
+            else if !store.shareURLs.isEmpty {quickSharing=true}
+        }
+    }
     private var toolsDock:some View {
         ScanControls {
             HStack(spacing:4) {
                 action("Обрізка","crop") {cropNow=true;editing=true}
                 action("Поворот","rotate.right") {rotatePage()}
                 action("Вигляд","slider.horizontal.3") {cropNow=false;editing=true}
-                action("PDF","square.and.arrow.up") {exporting=true}
+                action("PDF","square.and.arrow.up") {savePDF()}
             }.padding(.vertical,8)
         }
     }

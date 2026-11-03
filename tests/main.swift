@@ -376,3 +376,18 @@ check(!CaptureSampling.sufficient(Quad(points:[Point(x:0.3,y:0.3),Point(x:0.7,y:
 check(CaptureSampling.sufficient(Quad(points:[Point(x:0.1,y:0.08),Point(x:0.9,y:0.08),Point(x:0.9,y:0.92),Point(x:0.1,y:0.92)])),"frame-filling sheet passes sampling check")
 check(!TextDetail(acutance:0.45,patches:6).clear,"borderline soft detail is no longer auto-accepted")
 print("All \(passed) checks including bounded text detail passed")
+
+var fastLens=LensSettleHold()
+check(!fastLens.update(position:0.5,adjusting:false,time:0),"fast lens first sample cannot confirm readiness")
+check(fastLens.update(position:0.5,adjusting:false,time:0.21),"fixed-focus camera settles without text or size input")
+check(!fastLens.update(position:0.6,adjusting:false,time:0.42),"real lens movement still delays auto capture")
+check(!fastLens.update(position:0.6,adjusting:true,time:0.63),"active autofocus still delays automatic exposure")
+fastLens.reset()
+_ = fastLens.update(position:0,adjusting:false,time:0)
+check(fastLens.update(position:0,adjusting:false,time:1.1),"slower contour analysis does not indefinitely stall a quiet lens")
+check(!fastLens.update(position:0,adjusting:false,time:3.0),"very stale lens observations reset readiness")
+var noTextTracker=CaptureStability()
+var noTextReady=false
+for n in 0...6 {noTextReady=noTextTracker.update(trackingQuad,signature:[],time:Double(n)*0.21,focusing:false) || noTextReady}
+check(noTextReady,"a stable document can auto capture with no text signature")
+print("All \(passed) checks including fast capture passed")

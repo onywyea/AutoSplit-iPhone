@@ -927,3 +927,20 @@ enum CaptureSampling {
         return max(width,height)>=0.65
     }
 }
+
+// Capture readiness is independent of OCR, glyph size and paper coverage.
+// Only hardware settling is gated; page motion is handled by CaptureStability.
+struct LensSettleHold {
+    private var previousPosition:Float?
+    private var previousTime:Double?
+    private var credit=0.0
+    mutating func reset() {previousPosition=nil;previousTime=nil;credit=0}
+    mutating func update(position:Float,adjusting:Bool,time:Double)->Bool {
+        let elapsed=time-(previousTime ?? time)
+        let moved=previousPosition.map {abs($0-position)>0.004} ?? true
+        previousPosition=position;previousTime=time
+        if adjusting || moved || elapsed<0 || elapsed>1.5 {credit=0;return false}
+        credit+=min(0.3,max(0,elapsed))
+        return credit>=0.20
+    }
+}

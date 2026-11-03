@@ -27,7 +27,7 @@ struct LibraryResumeSection:View {
                 }
                 Text(document.title).font(.headline).foregroundStyle(.primary).lineLimit(2)
                 HStack {
-                    Text(pending>0 ? "\(pending) стор. до перевірки":"Повернутися до комплекту").font(.caption).foregroundStyle(.secondary)
+                    Text(pending>0 ? "Можна уточнити · \(pending)":"Повернутися до комплекту").font(.caption).foregroundStyle(.secondary)
                     Spacer(minLength:0)
                     Image(systemName:"arrow.right").font(.subheadline.weight(.semibold)).frame(width:36,height:36).background(Color.accent.opacity(0.12),in:Circle())
                 }
@@ -63,7 +63,7 @@ struct LibraryDocumentRow:View {
                 if !document.nameConfirmed && !document.candidates.isEmpty {
                     Text("Перевірте ПІБ").font(.caption).foregroundStyle(Color.accent)
                 } else if pending>0 {
-                    Text("До перевірки · \(pending)").font(.caption).foregroundStyle(.secondary)
+                    Text("Можна уточнити · \(pending)").font(.caption).foregroundStyle(.secondary)
                 }
             }.frame(maxWidth:.infinity,alignment:.leading)
             Image(systemName:selecting ? (selected ? "checkmark.circle.fill":"circle"):"arrow.up.right")

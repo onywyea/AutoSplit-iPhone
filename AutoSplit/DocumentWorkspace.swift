@@ -10,6 +10,7 @@ struct DocumentView:View {
     @State private var capturing=false
     @State private var importing=false
     @State private var exporting=false
+    @State private var quickSharing=false
     @State private var naming=false
     @State private var handoff=false
     @State private var styling=false
@@ -38,7 +39,7 @@ struct DocumentView:View {
                 .safeAreaInset(edge:.bottom) {actionBar}
             } else {ContentUnavailableView("Скан недоступний",systemImage:"doc")}
         }
-        .navigationTitle("Перевірка").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("Документ").navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement:.topBarTrailing) {
                 Button(selecting ? "Готово":"Вибрати") {selecting.toggle();selected=[];ordering=false}.disabled(blocked || pages.isEmpty)
@@ -55,6 +56,7 @@ struct DocumentView:View {
             }
         }
         .sheet(isPresented:$exporting) {PDFExportSheet(ids:[documentID])}
+        .sheet(isPresented:$quickSharing) {ShareSheet(urls:store.shareURLs)}
         .sheet(isPresented:$naming) {NameSheet(documentID:documentID)}
         .sheet(isPresented:$styling) {DocumentStyleSheet(documentID:documentID,pageIDs:styleTargets)}
         .sheet(isPresented:$handoff) {HandoffView(ids:[documentID])}
@@ -75,7 +77,7 @@ struct DocumentView:View {
                 VStack(alignment:.leading,spacing:8) {
                     Text(document.title).font(.title2.weight(.semibold)).lineLimit(3)
                     HStack {
-                        Text("\(pages.count) стор. · \(issues.count) до перевірки").font(.caption).foregroundStyle(.secondary)
+                        Text("\(pages.count) збережених стор.").font(.caption).foregroundStyle(.secondary)
                         Spacer()
                         Button("Назва") {naming=true}.font(.subheadline).frame(minHeight:44)
                     }
@@ -86,7 +88,7 @@ struct DocumentView:View {
                     WorkspaceFilters(selection:$filter)
                     if !issues.isEmpty && !selecting {
                         NavigationLink {PageBrowser(documentID:documentID,initialPageID:issues[0].id)} label:{
-                            Label("Перевірити проблемні",systemImage:"viewfinder").font(.subheadline.weight(.semibold)).frame(maxWidth:.infinity,minHeight:44)
+                            Label("Уточнити за бажанням",systemImage:"viewfinder").font(.subheadline.weight(.semibold)).frame(maxWidth:.infinity,minHeight:44)
                         }.scanSecondaryButton()
                     }
                     if selecting {
@@ -150,14 +152,21 @@ struct DocumentView:View {
                 } else {
                     Button {importing=true} label:{Image(systemName:"square.and.arrow.down").frame(width:44,height:44)}.scanSecondaryButton().accessibilityLabel("Імпорт PDF або фото")
                     Button {capturing=true} label:{Label(pages.isEmpty ? "Сканувати":"Додати",systemImage:"camera").frame(maxWidth:.infinity,minHeight:44)}.scanPrimaryButton()
-                    Button {exporting=true} label:{Image(systemName:"square.and.arrow.up").frame(width:44,height:44)}.scanSecondaryButton().disabled(pages.isEmpty).accessibilityLabel("Експорт PDF")
+                    Button {savePDF()} label:{Image(systemName:"square.and.arrow.up").frame(width:44,height:44)}.scanSecondaryButton().disabled(pages.isEmpty).accessibilityLabel("Експорт PDF")
                 }
             }.font(.subheadline.weight(.semibold)).padding(.vertical,6).disabled(blocked)
             }
         }.padding(.horizontal,16).padding(.vertical,8)
     }
+    private func savePDF() {
+        Task {
+            await store.export([documentID])
+            if store.error==nil && !store.shareURLs.isEmpty {quickSharing=true}
+        }
+    }
     private var documentMenu:some View {
         Menu {
+            Button {exporting=true} label:{Label("Розмір / стиснення PDF",systemImage:"doc.zipper")}
             Button {styleTargets=nil;styling=true} label:{Label("Стиль усіх сторінок",systemImage:"slider.horizontal.3")}
             Button(ordering ? "Завершити порядок":"Змінити порядок",systemImage:"arrow.up.arrow.down") {ordering.toggle();selecting=false;selected=[]}
             Button {naming=true} label:{Label("Перейменувати",systemImage:"pencil")}

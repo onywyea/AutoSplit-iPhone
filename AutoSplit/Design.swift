@@ -33,19 +33,24 @@ struct ScanMark:View {
 extension Leaf {
     // Status describes actual metadata, not an invented scan-quality score.
     var reviewReason:String? {
-        if sourceKind=="camera" && cropVerified != true {return "Уточніть межі"}
+        if sourceKind=="camera" && cropVerified != true {return "Автокраї не визначені"}
         if reviewed==true {return nil}
+        // OCR confidence, an advisory orientation note, and pending OCR do
+        // not create a mandatory visual-review queue in the fast workflow.
         let lower=note.lowercased()
-        if lower.contains("напрям") || lower.contains("поворот") && lower.contains("перевір") {return "Перевірте поворот"}
-        if lower.contains("невпев") {return "Перевірте текст"}
-        if !ocrReady {return "Розпізнавання очікує"}
+        if lower.contains("не вдалося") || lower.contains("не знайдено оригінал") {return "Автообробка не завершена"}
         return nil
     }
 }
 struct PageReviewBadge:View {
     let page:Leaf
+    private var title:String {
+        if let reason=page.reviewReason {return reason}
+        if page.reviewed==true {return "Перевірено вами"}
+        return page.ocrReady ? "Автооброблено":"Збережено"
+    }
     var body:some View {
-        Label(page.reviewReason ?? (page.reviewed==true ? "Перевірено вами":"Перевірки завершено"),systemImage:page.reviewReason == nil ? "checkmark.circle":"exclamationmark.circle")
+        Label(title,systemImage:page.reviewReason == nil ? "checkmark.circle":"exclamationmark.circle")
             .font(.caption).foregroundStyle(page.reviewReason == nil ? Color.scanSuccess:Color.accent)
     }
 }

@@ -1,0 +1,29 @@
+{
+  "version": "0.4.5",
+  "build": 24,
+  "swift_syntax_files": 24,
+  "swift_syntax_errors": 0,
+  "package_check": "passed",
+  "workflow": "YAML and embedded Python parse",
+  "capture_changes": [
+    "No TextDetail or CaptureSampling capture gate",
+    "LensSettleHold observes hardware only",
+    "Hardware readiness timestamp sampled after contour analysis",
+    "Manual shutter has no readiness confirmation dialog",
+    "Contour stability and duplicate suppression retained"
+  ],
+  "export_changes": [
+    "No cropVerified/reviewed export veto",
+    "Full-frame fallback through unchanged cropDecision",
+    "Quick PDF goes directly to ShareSheet",
+    "Compression still available in menu"
+  ],
+  "review_changes": [
+    "Removed per-page check control from viewer",
+    "OCR pending/confidence/rotation advisory no longer create review queue"
+  ],
+  "pipeline": "unchanged from 0.4.4; no boundary-accuracy claim",
+  "native_compilation": "not run locally",
+  "native_camera_and_exports": "not tested",
+  "regression_tests": "added to tests/main.swift; execute in Actions"
+}

@@ -282,9 +282,8 @@ final class ScannerStore:ObservableObject {
                 var urls:[URL]=[]
                 for doc in selected {
                     guard !doc.pages.isEmpty else{throw ScanError.message("Скан «\(doc.title)» порожній")}
-                    if let unverified=doc.pages.firstIndex(where:{$0.sourceKind=="camera" && $0.cropVerified != true}) {
-                        throw ScanError.message("Сторінка \(unverified+1): межі аркуша не визначені. Вкажіть кути або явно залиште весь кадр у редакторі.")
-                    }
+                    // Export never requires per-page review. Unverified photo
+                    // outputs already retain the complete frame via cropDecision.
                     let documentFolder=folder.appendingPathComponent(doc.id.uuidString,isDirectory:true)
                     try FileManager.default.createDirectory(at:documentFolder,withIntermediateDirectories:true)
                     let url=documentFolder.appendingPathComponent(NameFinder.safeName(doc.title)+".pdf")

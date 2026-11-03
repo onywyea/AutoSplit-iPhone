@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 #if !compiler(>=6.2)
-#error("ScanFlow 0.4.4 needs Xcode 26+. Upload .github/workflows/build.yml from this update and start a NEW Run workflow.")
+#error("ScanFlow 0.4.5 needs Xcode 26+. Upload .github/workflows/build.yml from this update and start a NEW Run workflow.")
 #endif
 
 extension Color {
@@ -72,7 +72,7 @@ struct WorkspaceFilters:View {
     var body:some View {
         HStack(spacing:8) {
             chip("Усі",value:0)
-            chip("Перевірити",value:1)
+            chip("Уточнити",value:1)
             chip("Готові",value:2)
         }.accessibilityElement(children:.contain).accessibilityLabel("Фільтр сторінок")
     }
@@ -109,7 +109,7 @@ struct AppearanceSheet:View {
                     Label(effect,systemImage:"circle.lefthalf.filled")
                     Text("Документ не покривається склом. Пониження прозорості в налаштуваннях iPhone вимикає прозорі ефекти.").font(.caption).foregroundStyle(.secondary)
                 }
-                Section("Версія") {Text("ScanFlow 0.4.4 · 23")}
+                Section("Версія") {Text("ScanFlow 0.4.5 · 24")}
             }.navigationTitle("Вигляд").navigationBarTitleDisplayMode(.inline)
                 .toolbar {ToolbarItem(placement:.confirmationAction) {Button("Готово") {dismiss()}}}
         }.tint(.accent)
