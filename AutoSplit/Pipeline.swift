@@ -143,7 +143,23 @@ extension Imaging {
             filter.setValue(0.025,forKey:kCIInputBrightnessKey)
             if let out=filter.outputImage,let cg=CIContext().createCGImage(out,from:out.extent) { image=UIImage(cgImage:cg) }
         }
+        if mode == .white || mode == .clean {image=try enhanceDocumentDetail(image)}
         return edgeFill ? try cleanRim(image) : image
+    }
+    static func enhanceDocumentDetail(_ image:UIImage) throws -> UIImage {
+        guard let cg=image.cgImage else {return image}
+        let width=cg.width,height=cg.height
+        var rgba=[UInt8](repeating:0,count:width*height*4)
+        let flags=CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        let valid=rgba.withUnsafeMutableBytes {raw -> Bool in
+            guard let context=CGContext(data:raw.baseAddress,width:width,height:height,bitsPerComponent:8,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:flags) else {return false}
+            context.draw(cg,in:CGRect(x:0,y:0,width:width,height:height));return true
+        }
+        guard valid else {throw ScanError.message("Не вдалося прочитати деталі сторінки")}
+        let corrected=DocumentDetail.enhance(rgba,width:width,height:height)
+        guard let provider=CGDataProvider(data:Data(corrected) as CFData),
+              let out=CGImage(width:width,height:height,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:flags),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent) else {throw ScanError.message("Не вдалося записати чіткість сторінки")}
+        return UIImage(cgImage:out)
     }
     static func correctPaperLighting(_ image:UIImage) throws -> UIImage {
         guard let cg=image.cgImage else {return image}

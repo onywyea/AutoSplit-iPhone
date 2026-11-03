@@ -359,3 +359,20 @@ let softChart=TextDetail.measure(blurredChart,width:120,height:160,quad:.full)
 check(clearChart.clear && !softChart.clear,"sharp text-like strokes pass; broadened strokes fail")
 check(PDFCompression.original.pixelLimit==4096,"maximum-quality loading retains new capture detail")
 print("All \(passed) checks including detail chart passed")
+
+var faintStroke=[UInt8](repeating:255,count:40*40*4)
+for y in 5..<35 {for c in 0..<3 {faintStroke[(y*40+20)*4+c]=170}}
+let detailedStroke=DocumentDetail.enhance(faintStroke,width:40,height:40)
+check(detailedStroke[(20*40+20)*4]<170,"faint thin stroke receives bounded dark-side detail")
+check(detailedStroke[(20*40+19)*4]==255,"white side remains white without a bright halo")
+check(DocumentDetail.enhance([UInt8](repeating:210,count:40*40*4),width:40,height:40)==[UInt8](repeating:210,count:40*40*4),"flat paper is unchanged by detail enhancement")
+var bounded=true
+for p in 0..<(40*40) {
+    for c in 0..<3 {let i=p*4+c;let delta=Int(faintStroke[i])-Int(detailedStroke[i]);if delta<0 || delta>12 {bounded=false}}
+    if faintStroke[p*4+3] != detailedStroke[p*4+3] {bounded=false}
+}
+check(bounded,"detail cannot brighten RGB, darken by over 12, or change alpha")
+check(!CaptureSampling.sufficient(Quad(points:[Point(x:0.3,y:0.3),Point(x:0.7,y:0.3),Point(x:0.7,y:0.7),Point(x:0.3,y:0.7)])),"distant small sheet does not pass sampling check")
+check(CaptureSampling.sufficient(Quad(points:[Point(x:0.1,y:0.08),Point(x:0.9,y:0.08),Point(x:0.9,y:0.92),Point(x:0.1,y:0.92)])),"frame-filling sheet passes sampling check")
+check(!TextDetail(acutance:0.45,patches:6).clear,"borderline soft detail is no longer auto-accepted")
+print("All \(passed) checks including bounded text detail passed")

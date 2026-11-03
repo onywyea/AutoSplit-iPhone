@@ -39,7 +39,7 @@ struct PageEditor:View {
                 VStack(alignment:.leading,spacing:16) {
                     Text("Вигляд сторінки").font(.headline)
                     Picker("Обробка",selection:$leaf.finish) { ForEach(Finish.allCases,id:\.self){Text($0.rawValue).tag($0)} }.pickerStyle(.menu)
-                    Toggle("Автоматично очищати край",isOn:Binding(get:{leaf.edgeFill},set:{leaf.edgeFill=$0;leaf.edgeChoiceExplicit=true})).tint(.mint)
+                    Toggle("Автоматично очищати край",isOn:Binding(get:{leaf.edgeFill},set:{leaf.edgeFill=$0;leaf.edgeChoiceExplicit=true})).tint(.accent)
                     DisclosureGroup("Налаштування краю") {
                         VStack(alignment:.leading,spacing:12) {
                             Text("Запас очищення за контуром").font(.subheadline)
@@ -156,15 +156,15 @@ struct CornerEditor:View {
                                     let p=CGPoint(x:offset.x+quad.points[i].x*size.width,y:offset.y+quad.points[i].y*size.height)
                                     if i==0 {path.move(to:p)} else{path.addLine(to:p)}
                                 };path.closeSubpath()
-                            }.fill(.mint.opacity(0.12))
+                            }.fill(Color.accent.opacity(0.12))
                             Path { path in
                                 for i in 0..<4 {
                                     let p=CGPoint(x:offset.x+quad.points[i].x*size.width,y:offset.y+quad.points[i].y*size.height)
                                     if i==0 {path.move(to:p)} else{path.addLine(to:p)}
                                 };path.closeSubpath()
-                            }.stroke(quad.valid ? Color.mint : .red,lineWidth:2)
+                            }.stroke(quad.valid ? Color.accent : .red,lineWidth:2)
                             ForEach(0..<4,id:\.self) { i in
-                                Circle().fill(.white).frame(width:22,height:22).overlay(Circle().stroke(.mint,lineWidth:4)).frame(width:48,height:48).contentShape(Rectangle())
+                                Circle().fill(.white).frame(width:22,height:22).overlay(Circle().stroke(Color.accent,lineWidth:4)).frame(width:48,height:48).contentShape(Rectangle())
                                     .position(x:offset.x+quad.points[i].x*size.width,y:offset.y+quad.points[i].y*size.height)
                                     .accessibilityLabel(["Верхній лівий кут","Верхній правий кут","Нижній правий кут","Нижній лівий кут"][i])
                                     .gesture(DragGesture(minimumDistance:0,coordinateSpace:.named("crop")).onChanged { value in

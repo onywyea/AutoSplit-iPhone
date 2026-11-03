@@ -30,9 +30,9 @@ struct CleanupEditor:View {
                             Image(uiImage:preview ?? original).resizable().frame(width:size.width,height:size.height).offset(x:offset.x,y:offset.y)
                             if preview == nil {
                                 ForEach(Array(strokes.enumerated()),id:\.offset) { _,stroke in
-                                    strokePath(stroke.points,size:size,offset:offset).stroke(.pink.opacity(0.45),style:StrokeStyle(lineWidth:CGFloat(stroke.radius)*min(size.width,size.height)*2,lineCap:.round,lineJoin:.round))
+                                    strokePath(stroke.points,size:size,offset:offset).stroke(Color.accent.opacity(0.45),style:StrokeStyle(lineWidth:CGFloat(stroke.radius)*min(size.width,size.height)*2,lineCap:.round,lineJoin:.round))
                                 }
-                                strokePath(current,size:size,offset:offset).stroke(.pink.opacity(0.55),style:StrokeStyle(lineWidth:CGFloat(radius)*min(size.width,size.height)*2,lineCap:.round,lineJoin:.round))
+                                strokePath(current,size:size,offset:offset).stroke(Color.accent.opacity(0.55),style:StrokeStyle(lineWidth:CGFloat(radius)*min(size.width,size.height)*2,lineCap:.round,lineJoin:.round))
                                 Color.clear.contentShape(Rectangle()).gesture(DragGesture(minimumDistance:0).onChanged { value in
                                     let x=(value.location.x-offset.x)/size.width,y=(value.location.y-offset.y)/size.height
                                     guard x>=0,x<=1,y>=0,y<=1 else {return}
@@ -48,7 +48,7 @@ struct CleanupEditor:View {
                     Image(systemName:"circle.dotted")
                     Slider(value:$radius,in:0.008...0.07).disabled(preview != nil || working).accessibilityLabel("Розмір пензля")
                     Image(systemName:"circle.fill")
-                }.tint(.mint).padding(.horizontal,24)
+                }.tint(.accent).padding(.horizontal,24)
                 HStack(spacing:24) {
                     Button {if !strokes.isEmpty {strokes.removeLast()};preview=nil} label:{Label("Скасувати штрих",systemImage:"arrow.uturn.backward")}.disabled(strokes.isEmpty || working)
                     Button(preview == nil ? "Перевірити" : "До пензля") {

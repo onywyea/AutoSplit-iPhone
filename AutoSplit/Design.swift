@@ -26,11 +26,8 @@ extension View {
 }
 struct ScanMark:View {
     var body:some View {
-        ZStack {
-            RoundedRectangle(cornerRadius:13).fill(LinearGradient(colors:[Color(red:1,green:0.67,blue:0.39),Color(red:0.91,green:0.25,blue:0.08)],startPoint:.topLeading,endPoint:.bottomTrailing))
-            RoundedRectangle(cornerRadius:13).stroke(.white.opacity(0.35),lineWidth:1)
-            Image(systemName:"doc.viewfinder").font(.system(size:25,weight:.medium)).foregroundStyle(.white).shadow(color:.black.opacity(0.18),radius:1,y:2)
-        }.frame(width:44,height:44).accessibilityHidden(true)
+        Image("BrandMark").resizable().scaledToFit().frame(width:48,height:48)
+            .clipShape(RoundedRectangle(cornerRadius:13)).accessibilityHidden(true)
     }
 }
 extension Leaf {

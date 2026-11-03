@@ -803,7 +803,7 @@ enum PaperLighting {
 struct TextDetail {
     let acutance:Double
     let patches:Int
-    var clear:Bool {patches>=2 && acutance>=0.42}
+    var clear:Bool {patches>=2 && acutance>=0.48}
     static func measure(_ gray:[UInt8],width:Int,height:Int,quad:Quad)->TextDetail {
         guard width>=32,height>=32,gray.count==width*height,quad.valid else {return TextDetail(acutance:0,patches:0)}
         let xs=quad.points.map {$0.x},ys=quad.points.map {$0.y}
@@ -852,5 +852,52 @@ struct FocusQualityHold {
         if adjusting || moved || !detail.clear || gap>0.6 || gap<0 {credit=0;return false}
         credit+=min(0.3,max(0,gap))
         return credit>=0.4
+    }
+}
+
+// Bounded dark-side detail enhancement. Never generates glyphs, bright halos
+// or new resolution. Flat regions and low-amplitude paper grain stay unchanged.
+enum DocumentDetail {
+    static func enhance(_ rgba:[UInt8],width:Int,height:Int)->[UInt8] {
+        guard width>=5,height>=5,rgba.count==width*height*4 else {return rgba}
+        let count=width*height
+        var luminance=[UInt16](repeating:0,count:count)
+        for p in 0..<count {
+            let i=p*4
+            luminance[p]=UInt16((54*Int(rgba[i])+183*Int(rgba[i+1])+19*Int(rgba[i+2])+128)/256)
+        }
+        var horizontal=[UInt16](repeating:0,count:count)
+        for y in 0..<height {for x in 0..<width {
+            let p=y*width+x,l=y*width+max(0,x-1),r=y*width+min(width-1,x+1)
+            horizontal[p]=luminance[l]+2*luminance[p]+luminance[r]
+        }}
+        var output=rgba
+        for y in 1..<(height-1) {for x in 1..<(width-1) {
+            let p=y*width+x
+            let center=Int(luminance[p])
+            guard center>18 else {continue}
+            let mean=Double(Int(horizontal[p-width])+2*Int(horizontal[p])+Int(horizontal[p+width]))/16.0
+            let detail=mean-Double(center)
+            guard detail>2.0 else {continue}
+            let gradient=abs(Int(luminance[p+1])-Int(luminance[p-1]))+abs(Int(luminance[p+width])-Int(luminance[p-width]))
+            let l=Int(luminance[p-1]),r=Int(luminance[p+1]),t=Int(luminance[p-width]),b=Int(luminance[p+width])
+            let span=max(l,max(r,max(t,b)))-min(l,min(r,min(t,b)))
+            guard gradient>=12 || span>=12 else {continue}
+            let adjustment=Int(min(12.0,(detail-2.0)*0.70).rounded())
+            guard adjustment>0 else {continue}
+            for c in 0..<3 {let i=p*4+c;output[i]=UInt8(max(0,Int(rgba[i])-adjustment))}
+        }}
+        return output
+    }
+}
+
+
+enum CaptureSampling {
+    static func sufficient(_ quad:Quad)->Bool {
+        guard quad.valid,CropSafety.area(quad)>=0.28 else {return false}
+        let xs=quad.points.map {$0.x},ys=quad.points.map {$0.y}
+        let width=(xs.max() ?? 0)-(xs.min() ?? 0)
+        let height=(ys.max() ?? 0)-(ys.min() ?? 0)
+        return max(width,height)>=0.65
     }
 }

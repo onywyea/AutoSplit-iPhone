@@ -1,0 +1,39 @@
+{
+  "version": "0.4.3",
+  "build": 22,
+  "swift_files_parsed": 24,
+  "swift_syntax_errors": 0,
+  "hardcoded_mint_tokens": 0,
+  "icon": {
+    "size": [
+      1024,
+      1024
+    ],
+    "mode": "RGB",
+    "source": "built-in generated original scanner artwork based on inspected style reference"
+  },
+  "detail_reference": {
+    "source_dimensions": [
+      1744,
+      2470
+    ],
+    "changed_pixel_fraction": 0.04848433495524273,
+    "max_darkening": 12,
+    "brightened_components_before_JPEG": 0,
+    "method": "Python approximation of the portable Swift detail pass"
+  },
+  "auto_capture_changes": {
+    "min_page_area": 0.28,
+    "min_long_projection": 0.65,
+    "acutance_threshold": 0.48
+  },
+  "processing_revision": 14,
+  "native_compilation": "not run; no Xcode locally",
+  "native_camera_and_performance": "not run",
+  "native_tests": "added; require GitHub Actions",
+  "limitations": [
+    "Sharpening does not restore lost focus/resolution.",
+    "JPEG encoding may introduce additional artifacts.",
+    "New capture thresholds require device validation."
+  ]
+}

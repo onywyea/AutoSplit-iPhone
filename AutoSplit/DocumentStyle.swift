@@ -3,9 +3,9 @@ import SwiftUI
 extension Finish {
     var detail:String {
         switch self {
-        case .white: return "Локальне вирівнювання освітлення паперу. На щільних копіях оцінює світло за полями аркуша."
+        case .white: return "Вирівнює освітлення й помірно підсилює тонкі штрихи. Не відновлює втрачений фокус."
         case .natural: return "Залишає кольори й освітлення оригіналу."
-        case .clean: return "Легке підсилення контрасту."
+        case .clean: return "Легке підсилення контрасту й деталей тексту."
         case .mono: return "Чорно-білий вигляд для текстових сторінок."
         }
     }

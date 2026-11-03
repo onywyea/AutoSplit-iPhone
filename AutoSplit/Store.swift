@@ -42,7 +42,7 @@ final class ScannerStore:ObservableObject {
                 let output=try await Task.detached {try Disk.writeImage(preview.image)}.value
                 if let d=index(id),let p=documents[d].pages.firstIndex(where:{$0.id==snapshot.id}) {
                     documents[d].pages[p].output=output;documents[d].pages[p].quad=preview.quad
-                    documents[d].pages[p].cropVerified=preview.verified;documents[d].pages[p].edgeRepairCount=preview.edgeRepairCount;documents[d].pages[p].edgeRevision=13
+                    documents[d].pages[p].cropVerified=preview.verified;documents[d].pages[p].edgeRepairCount=preview.edgeRepairCount;documents[d].pages[p].edgeRevision=14
                     documents[d].pages[p].note=preview.verified ? "Межі знайдено. Розпізнавання після завершення зйомки":"Межі не знайдено — вкажіть кути або перезніміть ближче"
                     documents[d].pages[p].note += " · "+(preview.edgeRepairCount>0 ? "Край оброблено":"Край перевірено — без змін")
                     save()
@@ -101,7 +101,7 @@ final class ScannerStore:ObservableObject {
                 guard let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) else { continue }
                 documents[i].pages[p].output=output; documents[i].pages[p].quad=result.quad
                 documents[i].pages[p].turns=result.turns; documents[i].pages[p].text=result.text
-                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified;documents[i].pages[p].edgeRepairCount=result.edgeRepairCount;documents[i].pages[p].edgeRevision=13; documents[i].pages[p].ocrReady=true;documents[i].pages[p].reviewed=nil;shareURLs=[];exportSummary="";save()
+                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified;documents[i].pages[p].edgeRepairCount=result.edgeRepairCount;documents[i].pages[p].edgeRevision=14; documents[i].pages[p].ocrReady=true;documents[i].pages[p].reviewed=nil;shareURLs=[];exportSummary="";save()
             } catch {
                 if let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) { documents[i].pages[p].note=error.localizedDescription }
             }
@@ -132,7 +132,10 @@ final class ScannerStore:ObservableObject {
     }
     func ensureEdgeProcessing(_ id:UUID,force:Bool=false) async {
         guard !busy,let doc=document(id) else {return}
-        let pending=doc.pages.filter {force || ($0.edgeRevision ?? 0)<13}
+        let pending=doc.pages.filter {page in
+            let expected=(page.finish == .white || page.finish == .clean) ? 14:13
+            return force || (page.edgeRevision ?? 0)<expected
+        }
         guard !pending.isEmpty else {return}
         busy=true;stopped=false;error=nil
         defer {busy=false;save()}
@@ -147,7 +150,7 @@ final class ScannerStore:ObservableObject {
                 let output=try await Task.detached {try Disk.writeImage(result.image)}.value
                 guard let d=index(id),let p=documents[d].pages.firstIndex(where:{$0.id==leaf.id}) else {continue}
                 documents[d].pages[p].output=output;documents[d].pages[p].edgeFill=leaf.edgeFill
-                documents[d].pages[p].edgeRepairCount=result.changed;documents[d].pages[p].edgeRevision=13;documents[d].pages[p].reviewed=nil;shareURLs=[];exportSummary=""
+                documents[d].pages[p].edgeRepairCount=result.changed;documents[d].pages[p].edgeRevision=14;documents[d].pages[p].reviewed=nil;shareURLs=[];exportSummary=""
                 let previous=original.note.components(separatedBy:" · ").filter {!$0.hasPrefix("Край ") && $0 != "Очистку краю вимкнено"}
                 let edgeNote=leaf.edgeFill ? (result.changed>0 ? "Край оброблено":"Край перевірено — без змін") : "Очистку краю вимкнено"
                 documents[d].pages[p].note=([edgeNote]+previous).joined(separator:" · ")
@@ -184,7 +187,7 @@ final class ScannerStore:ObservableObject {
                 }.value
                 let output=try await Task.detached {try Disk.writeImage(result.image)}.value
                 guard let d=index(id),let p=documents[d].pages.firstIndex(where:{$0.id==item.id}) else {continue}
-                leaf.output=output;leaf.edgeRepairCount=result.changed;leaf.edgeRevision=13
+                leaf.output=output;leaf.edgeRepairCount=result.changed;leaf.edgeRevision=14
                 documents[d].pages[p]=leaf
                 completed+=1;save()
             } catch {self.error=error.localizedDescription;return false}
@@ -203,7 +206,7 @@ final class ScannerStore:ObservableObject {
         do {
             let output=try await Task.detached(priority:.userInitiated) {try Disk.writeImage(image)}.value
             guard let index=index(id),let p=documents[index].pages.firstIndex(where:{$0.id==leaf.id}) else {return false}
-            var edited=leaf;edited.reviewed=nil;edited.output=output;edited.edgeRepairCount=changed;edited.edgeRevision=13
+            var edited=leaf;edited.reviewed=nil;edited.output=output;edited.edgeRepairCount=changed;edited.edgeRevision=14
             if edited.manualCrop==true {edited.cropVerified=true}
             edited.text="";edited.ocrReady=false;edited.note="Зміни збережено — оновіть розпізнавання"
             documents[index].pages[p]=edited;documents[index].candidates=[]
@@ -216,7 +219,7 @@ final class ScannerStore:ObservableObject {
         do {
             let result=try await Task.detached {try autoreleasepool {try Imaging.renderWithEdgeReport(leaf)}}.value
             let name=try await Task.detached {try Disk.writeImage(result.image)}.value
-            var edited=leaf;edited.reviewed=nil;edited.edgeRepairCount=result.changed;edited.edgeRevision=13;if edited.manualCrop==true {edited.cropVerified=true}; edited.output=name; edited.text=""; edited.ocrReady=false; edited.note="Зміни збережено — оновіть розпізнавання"
+            var edited=leaf;edited.reviewed=nil;edited.edgeRepairCount=result.changed;edited.edgeRevision=14;if edited.manualCrop==true {edited.cropVerified=true}; edited.output=name; edited.text=""; edited.ocrReady=false; edited.note="Зміни збережено — оновіть розпізнавання"
             documents[i].pages[p]=edited; documents[i].candidates=[];shareURLs=[];exportSummary="";save()
         } catch { self.error=error.localizedDescription }
     }

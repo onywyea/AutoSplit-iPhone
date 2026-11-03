@@ -357,14 +357,16 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                 context.draw(cg,in:CGRect(x:0,y:0,width:cg.width,height:cg.height));return true
             }
             let detail=TextDetail.measure(decoded ? gray:[],width:cg.width,height:cg.height,quad:candidate ?? .full)
-            let quality=qualityHold.update(position:position,adjusting:adjusting || candidate==nil,detail:detail,time:now.timeIntervalSinceReferenceDate)
+            let adequateSize=candidate.map {CaptureSampling.sufficient($0)} ?? false
+            let quality=qualityHold.update(position:position,adjusting:adjusting || !adequateSize,detail:detail,time:now.timeIntervalSinceReferenceDate)
             let ready=tracker.update(candidate,signature:signature,time:now.timeIntervalSinceReferenceDate,focusing:!quality)
             let quad=tracker.quad
             processingLock.lock()
             qualityReadyAt=quality ? now:.distantPast;readyLensPosition=position;readyDeviceID=device?.uniqueID ?? ""
             processingLock.unlock()
             let focusText:String
-            if adjusting {focusText="Фокусуюся…"}
+            if candidate != nil && !adequateSize {focusText="Наблизьте аркуш · дрібний текст замалий"}
+            else if adjusting {focusText="Фокусуюся…"}
             else if detail.patches<2 {focusText="Не можу перевірити текст · торкніться тексту"}
             else if !detail.clear {focusText="Текст нечіткий · тримайте рівно або відсуньте камеру"}
             else {focusText=quality ? "Фокус стабільний · текст перевірено":"Перевіряю чіткість…"}
@@ -478,14 +480,14 @@ struct CaptureView:View {
                 if exposure {
                     HStack {
                         Image(systemName:"sun.min")
-                        Slider(value:Binding(get:{engine.brightness},set:{engine.setBrightness($0)}),in:-0.7...1.0).tint(.white)
+                        Slider(value:Binding(get:{engine.brightness},set:{engine.setBrightness($0)}),in:-0.7...1.0).tint(.accent)
                         Image(systemName:"sun.max.fill")
                         Text(String(format:"%+.1f",engine.brightness)).font(.caption.monospacedDigit()).frame(width:36)
                     }.padding(14).background(.black.opacity(0.55),in:RoundedRectangle(cornerRadius:18)).padding(.horizontal,22)
                 }
                 Spacer()
                 Label(engine.focusStatus,systemImage:engine.focusLocked ? "lock.fill":(engine.focusReady ? "checkmark.viewfinder":"viewfinder"))
-                    .font(.caption.weight(.semibold)).foregroundStyle(engine.focusReady || engine.focusLocked ? Color.mint:Color.yellow)
+                    .font(.caption.weight(.semibold)).foregroundStyle(engine.focusReady || engine.focusLocked ? Color.scanSuccess:Color.yellow)
                     .multilineTextAlignment(.center).padding(10).background(.black.opacity(0.65),in:Capsule())
                     .accessibilityLabel(engine.focusStatus)
                 Text(engine.message).font(.subheadline.weight(.medium)).multilineTextAlignment(.center).padding(.horizontal,16).padding(.vertical,9).background(.black.opacity(0.5),in:Capsule())
