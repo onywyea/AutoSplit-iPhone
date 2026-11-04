@@ -49,6 +49,10 @@ jobs:
           python3 scripts/check_package.py
           swiftc AutoSplit/Rules.swift AutoSplit/RimSeal.swift tests/main.swift -o core-tests
           ./core-tests
+      - name: Check compact document direction with native Vision
+        run: |
+          swiftc AutoSplit/Rules.swift AutoSplit/Orientation.swift tests/VisionOrientation.swift -o vision-tests
+          ./vision-tests
       - name: Generate Xcode project
         run: |
           brew install xcodegen

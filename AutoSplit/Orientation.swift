@@ -1,4 +1,8 @@
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 import Vision
 
 extension Imaging {
@@ -50,12 +54,13 @@ extension Imaging {
             let x=max(0,b.x-margin),y=max(0,1-b.y-b.height-margin)
             let bounds=CGRect(x:x*Double(cg.width),y:y*Double(cg.height),width:min(1-x,b.width+margin*2)*Double(cg.width),height:min(1-y,b.height+margin*2)*Double(cg.height)).integral
             if let crop=cg.cropping(to:bounds) {
-                let source=UIImage(cgImage:crop)
                 let factor=min(3,2400/CGFloat(max(crop.width,crop.height)))
-                let size=CGSize(width:CGFloat(crop.width)*factor,height:CGFloat(crop.height)*factor)
-                let format=UIGraphicsImageRendererFormat();format.scale=1
-                let enlarged=UIGraphicsImageRenderer(size:size,format:format).image {_ in source.draw(in:CGRect(origin:.zero,size:size))}
-                let zoom=try orientationReading(enlarged)
+                let width=max(1,Int(CGFloat(crop.width)*factor)),height=max(1,Int(CGFloat(crop.height)*factor))
+                let context=CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)
+                context?.interpolationQuality = .high
+                context?.draw(crop,in:CGRect(x:0,y:0,width:width,height:height))
+                guard let enlarged=context?.makeImage() else {return evidence}
+                let zoom=try orientationReading(UIImage(cgImage:enlarged))
                 if zoom.bodyScore>evidence.bodyScore {evidence=zoom}
             }
         }
