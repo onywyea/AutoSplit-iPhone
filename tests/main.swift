@@ -467,3 +467,35 @@ for y in 314..<320 {for x in 100..<103 {for c in 0..<3 {faintRimGlyph[(y*240+x)*
 check(RimSeal.apply(faintRimGlyph,width:240,height:320).pixels==faintRimGlyph,"local contrast preserves faint glyph-shaped content in the rim")
 
 print("All \(passed) checks passed, including final edge protection")
+
+// Fast swaps: identical sheet geometry and desk, changed text inside paper.
+func pageFixture(_ variant:Int,shift:Int=0,exposure:Int=0)->[UInt8] {
+    let w=PageFingerprint.width,h=PageFingerprint.height
+    var gray=[UInt8](repeating:UInt8(210+exposure),count:w*h)
+    for y in 10..<(h-10) {for x in 10..<(w-10) {
+        let xx=x-shift
+        let ink=variant==0 ? (y%7==0 && xx%11<7):(y%5==0 && xx%13<9)
+        if ink {gray[y*w+x]=UInt8(70+exposure)}
+    }}
+    return PageFingerprint.make(gray)
+}
+let pageA=pageFixture(0),pageB=pageFixture(1)
+check(PageFingerprint.changed(pageA,pageB),"different text at the same corners is a new page")
+check(!PageFingerprint.changed(pageA,pageFixture(0,exposure:25)),"exposure pulse alone is not a page swap")
+check(!PageFingerprint.changed(pageA,pageFixture(0,shift:1)),"one-pixel registration jitter is not a page swap")
+check(!PageFingerprint.changed([],pageB),"missing fingerprint is not permission to duplicate")
+let blankFingerprint=PageFingerprint.make([UInt8](repeating:230,count:96*128))
+check(!PageFingerprint.changed(blankFingerprint,blankFingerprint),"blank paper stays disarmed")
+var fastSwap=CaptureStability()
+for step in 0...5 {_ = fastSwap.update(trackingQuad,signature:cameraSignature,time:Double(step)*0.21,focusing:false,pageContent:pageA)}
+fastSwap.didCapture()
+var swappedReady=false
+for step in 6...12 {
+    swappedReady=fastSwap.update(trackingQuad,signature:cameraSignature,time:Double(step)*0.21,focusing:false,pageContent:pageB) || swappedReady
+}
+check(swappedReady,"fast swap rearms without missing contour or changing desk signature")
+fastSwap.didCapture()
+for step in 13...23 {
+    check(!fastSwap.update(trackingQuad,signature:cameraSignature,time:Double(step)*0.21,focusing:false,pageContent:pageB),"newly captured replacement is not duplicated")
+}
+print("All \(passed) checks including fast page replacement passed")

@@ -22,6 +22,8 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     // Camera queue owns writes; frame queue reads this under processingLock.
     private var seriesFocus=(UserDefaults.standard.object(forKey:"scanflow.seriesFocus") as? Bool) ?? true
     @Published var seriesFocusEnabled=(UserDefaults.standard.object(forKey:"scanflow.seriesFocus") as? Bool) ?? true
+    private var needsDocumentFocus=true
+    @Published var framingHint=""
     private var captureAllowedAfter=Date.distantPast
     @Published var lenses:[CameraLens]=[]
     @Published var selectedLensID=""
@@ -74,7 +76,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                         guard let device=preferred ?? normal ?? self.lensDevices.first else { throw ScanError.message("Камера недоступна") }
                         self.processingLock.lock();self.camera=device;self.processingLock.unlock()
                         try device.lockForConfiguration()
-                        self.configureFocus(device,series:self.seriesFocus)
+                        self.configureFocus(device,series:self.seriesFocus,waitForDocument:true)
                         if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
                         if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {device.whiteBalanceMode = .continuousAutoWhiteBalance}
                         device.setExposureTargetBias(min(device.maxExposureTargetBias,max(device.minExposureTargetBias,0.3)),completionHandler:nil)
@@ -83,11 +85,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                         guard self.session.canAddInput(input),self.session.canAddOutput(self.output) else { throw ScanError.message("Не вдалося налаштувати камеру") }
                         self.session.addInput(input);self.cameraInput=input; self.session.addOutput(self.output)
                         self.output.maxPhotoQualityPrioritization = .quality
-                        let dimensions=device.activeFormat.supportedMaxPhotoDimensions
-                        let usable=dimensions.filter {Int64($0.width)*Int64($0.height)<=12_500_000}
-                        if let best=(usable.isEmpty ? dimensions:usable).max(by:{Int64($0.width)*Int64($0.height)<Int64($1.width)*Int64($1.height)}) {
-                            self.output.maxPhotoDimensions=best
-                        }
+                        self.configurePhotoDimensions(device)
                         let video=AVCaptureVideoDataOutput(); video.alwaysDiscardsLateVideoFrames=true
                         video.setSampleBufferDelegate(self,queue:self.frames)
                         if self.session.canAddOutput(video) { self.session.addOutput(video) }
@@ -124,9 +122,10 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         DispatchQueue.main.async {self.lenses=choices;self.selectedLensID=id;self.flashSupported=supported;self.lastFlashFired=nil}
     }
     // Must be called with the device configuration lock on the camera queue.
-    private func configureFocus(_ device:AVCaptureDevice,series:Bool,point:CGPoint=CGPoint(x:0.5,y:0.5)) {
+    private func configureFocus(_ device:AVCaptureDevice,series:Bool,point:CGPoint=CGPoint(x:0.5,y:0.5),waitForDocument:Bool=false) {
         if device.isFocusPointOfInterestSupported {device.focusPointOfInterest=point}
-        if series && device.isFocusModeSupported(.autoFocus) {device.focusMode = .autoFocus}
+        if waitForDocument && series && device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
+        else if series && device.isFocusModeSupported(.autoFocus) {device.focusMode = .autoFocus}
         else if !series && device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
         else if series && device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
         else if device.isFocusModeSupported(.autoFocus) {device.focusMode = .autoFocus}
@@ -137,9 +136,9 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             guard !self.capturing,!self.processingNow,let device=self.camera else {return}
             do {
                 try device.lockForConfiguration()
-                self.configureFocus(device,series:enabled)
+                self.configureFocus(device,series:enabled,waitForDocument:enabled)
                 device.unlockForConfiguration()
-                self.processingLock.lock();self.seriesFocus=enabled;self.qualityReadyAt = .distantPast;self.processingLock.unlock()
+                self.processingLock.lock();self.seriesFocus=enabled;self.needsDocumentFocus=enabled;self.qualityReadyAt = .distantPast;self.processingLock.unlock()
                 UserDefaults.standard.set(enabled,forKey:"scanflow.seriesFocus")
                 self.frames.async {self.qualityHold.reset();self.tracker.resetStability()}
                 self.captureAllowedAfter=Date().addingTimeInterval(0.3)
@@ -164,7 +163,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     private func configureLens(_ device:AVCaptureDevice) throws {
         try device.lockForConfiguration()
         defer {device.unlockForConfiguration()}
-        configureFocus(device,series:seriesFocus)
+        configureFocus(device,series:seriesFocus,waitForDocument:true)
         if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
         if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {device.whiteBalanceMode = .continuousAutoWhiteBalance}
         let bias=min(device.maxExposureTargetBias,max(device.minExposureTargetBias,exposureBias))
@@ -172,7 +171,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     }
     private func configurePhotoDimensions(_ device:AVCaptureDevice) {
         let dimensions=device.activeFormat.supportedMaxPhotoDimensions
-        let usable=dimensions.filter {Int64($0.width)*Int64($0.height)<=12_500_000}
+        let usable=dimensions.filter {Int64($0.width)*Int64($0.height)<=25_000_000}
         if let best=(usable.isEmpty ? dimensions:usable).max(by:{Int64($0.width)*Int64($0.height)<Int64($1.width)*Int64($1.height)}) {
             output.maxPhotoDimensions=best
         }
@@ -198,7 +197,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                 self.session.removeInput(old)
                 if self.session.canAddInput(input) {
                     self.session.addInput(input)
-                    self.processingLock.lock();self.camera=device;self.processingLock.unlock()
+                    self.processingLock.lock();self.camera=device;self.needsDocumentFocus=true;self.processingLock.unlock()
                     self.cameraInput=input
                     self.configurePhotoDimensions(device)
                     self.session.commitConfiguration()
@@ -259,16 +258,17 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                 if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
                 device.unlockForConfiguration()
                 self.captureAllowedAfter=Date().addingTimeInterval(0.6)
-                self.processingLock.lock();self.qualityReadyAt = .distantPast;self.processingLock.unlock()
+                self.processingLock.lock();self.needsDocumentFocus=false;self.qualityReadyAt = .distantPast;self.processingLock.unlock()
                 self.frames.async {self.tracker.resetStability();self.qualityHold.reset()}
                 DispatchQueue.main.async {self.focusReady=false;self.focusLocked=false;self.focusStatus=self.seriesFocus ? "Фокусуюся один раз…":"Фокусуюся…"}
             } catch {DispatchQueue.main.async {self.message="Не вдалося перефокусувати. Спробуйте ще раз"}}
         }
     }
-    private func pauseDetectionAfterShot() {
+    private func pauseDetectionAfterShot(markCaptured:Bool=true) {
         frames.async {
-            self.ignoreFramesUntil=Date().addingTimeInterval(1.2)
-            self.tracker.didCapture()
+            self.ignoreFramesUntil=Date().addingTimeInterval(markCaptured ? 0.35:0.45)
+            if markCaptured {self.tracker.didCapture()}
+            else {self.tracker.resetStability()}
         }
     }
     func shoot(automatic:Bool=false) {
@@ -313,7 +313,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     }
     func photoOutput(_ output:AVCapturePhotoOutput,didFinishProcessingPhoto photo:AVCapturePhoto,error:Error?) {
         defer {
-            pauseDetectionAfterShot()
+            pauseDetectionAfterShot(markCaptured:false)
             queue.async {
                 if !self.seriesFocus {
                     if let device=self.camera,device.isFocusModeSupported(.continuousAutoFocus) {
@@ -350,6 +350,40 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             if let context=CGContext(data:raw.baseAddress,width:16,height:16,bitsPerComponent:8,bytesPerRow:16,space:CGColorSpaceCreateDeviceGray(),bitmapInfo:0) {context.draw(cg,in:CGRect(x:0,y:0,width:16,height:16))}
         }
         return bytes
+    }
+    private func pageFingerprint(_ input:CIImage,quad:Quad?)->[UInt8] {
+        guard let quad,quad.valid else {return []}
+        let extent=input.extent
+        func vector(_ point:Point)->CIVector {
+            CIVector(x:extent.minX+point.x*extent.width,y:extent.minY+(1-point.y)*extent.height)
+        }
+        let paper=input.applyingFilter("CIPerspectiveCorrection",parameters:[
+            "inputTopLeft":vector(quad.points[0]),"inputTopRight":vector(quad.points[1]),
+            "inputBottomRight":vector(quad.points[2]),"inputBottomLeft":vector(quad.points[3])])
+        guard !paper.extent.isEmpty,!paper.extent.isInfinite else {return []}
+        let origin=paper.transformed(by:CGAffineTransform(translationX:-paper.extent.minX,y:-paper.extent.minY))
+        let small=origin.transformed(by:CGAffineTransform(scaleX:CGFloat(PageFingerprint.width)/paper.extent.width,y:CGFloat(PageFingerprint.height)/paper.extent.height))
+        let rect=CGRect(x:0,y:0,width:CGFloat(PageFingerprint.width),height:CGFloat(PageFingerprint.height))
+        guard let cg=imageContext.createCGImage(small,from:rect) else {return []}
+        var gray=[UInt8](repeating:255,count:PageFingerprint.width*PageFingerprint.height)
+        gray.withUnsafeMutableBytes {raw in
+            let context=CGContext(data:raw.baseAddress,width:PageFingerprint.width,height:PageFingerprint.height,bitsPerComponent:8,bytesPerRow:PageFingerprint.width,space:CGColorSpaceCreateDeviceGray(),bitmapInfo:0)
+            context?.draw(cg,in:rect)
+        }
+        return PageFingerprint.make(gray)
+    }
+    private func focusFirstDocument(_ quad:Quad)->Bool {
+        processingLock.lock()
+        let pending=needsDocumentFocus && seriesFocus
+        if pending {needsDocumentFocus=false;qualityReadyAt = .distantPast}
+        processingLock.unlock()
+        guard pending else {return false}
+        let x=quad.points.map(\.x).reduce(0,+)/4
+        let y=quad.points.map(\.y).reduce(0,+)/4
+        // Video buffers are rotated clockwise into portrait. Device POI uses
+        // the unrotated landscape sensor coordinate system.
+        focus(at:CGPoint(x:y,y:1-x))
+        return true
     }
     func captureOutput(_ output:AVCaptureOutput,didOutput sampleBuffer:CMSampleBuffer,from connection:AVCaptureConnection) {
         let now=Date()
@@ -393,17 +427,19 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                 }
                 return score(a)<score(b)
             }?.0
+            let requestedFocus=candidate.map {focusFirstDocument($0)} ?? false
             let signature=frameSignature(buffer)
+            let content=pageFingerprint(input,quad:candidate)
             let focusSample=Date()
-            processingLock.lock();let device=camera;let wantsSeries=seriesFocus;processingLock.unlock()
+            processingLock.lock();let device=camera;let wantsSeries=seriesFocus;let pendingFocus=needsDocumentFocus;processingLock.unlock()
             let series=wantsSeries && device?.isFocusModeSupported(.locked)==true
             let adjusting=device?.isAdjustingFocus ?? true
             let position=device?.lensPosition ?? 0
             let settled=qualityHold.update(position:position,adjusting:adjusting,time:focusSample.timeIntervalSinceReferenceDate)
             let locked=device?.focusMode == .locked && !adjusting
-            if series && settled && !locked,let device {latchSeriesFocus(device.uniqueID,position:position)}
-            let quality=series ? locked:settled
-            let ready=tracker.update(candidate,signature:signature,time:now.timeIntervalSinceReferenceDate,focusing:!quality)
+            if series && !requestedFocus && !pendingFocus && settled && !locked,let device {latchSeriesFocus(device.uniqueID,position:position)}
+            let quality = !requestedFocus && !pendingFocus && (series ? locked:settled)
+            let ready=tracker.update(candidate,signature:signature,time:now.timeIntervalSinceReferenceDate,focusing:!quality,pageContent:content)
             let quad=tracker.quad
             processingLock.lock()
             qualityReadyAt=quality ? focusSample:.distantPast;readyLensPosition=position;readyDeviceID=device?.uniqueID ?? ""
@@ -412,10 +448,16 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             if locked {focusText=series ? "Фокус серії зафіксовано":"Фокус зафіксовано"}
             else if adjusting {focusText=series ? "Фокусуюся один раз…":"Фокусуюся…"}
             else {focusText=quality ? "Фокус стабільний":"Стабілізую фокус…"}
+            let hint:String
+            if let candidate {
+                let center=candidate.points.map(\.y).reduce(0,+)/4
+                let offCenter=abs(center-0.5)>0.13 || candidate.points.contains {$0.x<0.035 || $0.x>0.965 || $0.y<0.035 || $0.y>0.965}
+                hint=offCenter ? "Для чітких країв: віддаліть камеру й розташуйте аркуш у центрі":"Тримайте iPhone паралельно аркушу"
+            } else {hint=""}
             let aspect=CGFloat(CVPixelBufferGetWidth(buffer))/CGFloat(CVPixelBufferGetHeight(buffer))
             let text = quad == nil ? "У кадрі має бути весь аркуш · можна зняти вручну" :
                 (auto ? (tracker.armed ? "Аркуш знайдено · готую знімок…":"Перегорніть або заберіть аркуш") : "Аркуш знайдено")
-            DispatchQueue.main.async {self.detected=quad != nil;self.detectedQuad=quad;self.frameAspect=aspect;self.message=text;self.focusReady=quality;self.focusLocked=locked;self.focusStatus=focusText}
+            DispatchQueue.main.async {self.detected=quad != nil;self.detectedQuad=quad;self.frameAspect=aspect;self.message=text;self.focusReady=quality;self.focusLocked=locked;self.focusStatus=focusText;self.framingHint=hint}
             if auto && ready {shoot(automatic:true)}
         } catch {DispatchQueue.main.async {self.message="Зніміть вручну кнопкою внизу"}}
     }
@@ -529,6 +571,10 @@ struct CaptureView:View {
                     }.padding(14).background(.black.opacity(0.55),in:RoundedRectangle(cornerRadius:18)).padding(.horizontal,22)
                 }
                 Spacer()
+                if !engine.framingHint.isEmpty {
+                    Text(engine.framingHint).font(.caption).multilineTextAlignment(.center)
+                        .padding(8).background(.black.opacity(0.6),in:Capsule()).allowsHitTesting(false)
+                }
                 Label(engine.focusStatus,systemImage:engine.focusLocked ? "lock.fill":(engine.focusReady ? "checkmark.viewfinder":"viewfinder"))
                     .font(.caption.weight(.semibold)).foregroundStyle(engine.focusReady || engine.focusLocked ? Color.scanSuccess:Color.yellow)
                     .multilineTextAlignment(.center).padding(10).background(.black.opacity(0.65),in:Capsule())

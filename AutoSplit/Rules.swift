@@ -12,10 +12,12 @@ struct CaptureStability {
     private var signature:[UInt8]=[]
     private var capturedQuad:Quad?
     private var capturedSignature:[UInt8]=[]
+    private var pageContent:[UInt8]=[]
+    private var capturedContent:[UInt8]=[]
     private var focusTime=0.0
     mutating func resetStability() {credit=0;ready=false;focusTime=0}
     mutating func didCapture() {
-        armed=false;capturedQuad=quad;capturedSignature=signature
+        armed=false;capturedQuad=quad;capturedSignature=signature;capturedContent=pageContent
         changeFrames=0;resetStability()
     }
     static func distance(_ a:Quad,_ b:Quad)->Double {
@@ -47,7 +49,7 @@ struct CaptureStability {
         }
         return difference/(255.0*count)
     }
-    mutating func update(_ candidate:Quad?,signature current:[UInt8],time:Double,focusing:Bool)->Bool {
+    mutating func update(_ candidate:Quad?,signature current:[UInt8],time:Double,focusing:Bool,pageContent content:[UInt8]=[])->Bool {
         let dt=min(0.3,max(0,time-(lastTime ?? time)))
         lastTime=time;ready=false
         guard let candidate,candidate.valid else {
@@ -60,7 +62,7 @@ struct CaptureStability {
         let movement=Self.motion(signature,current)
         if !armed {
             let changed=capturedQuad.map {Self.distance($0,candidate)>0.09} ?? true
-            let differentContent=Self.motion(capturedSignature,current)>0.065
+            let differentContent=Self.motion(capturedSignature,current)>0.065 || PageFingerprint.changed(capturedContent,content)
             changeFrames=(changed || differentContent) ? changeFrames+1:0
             if changeFrames>=2 {armed=true;credit=0}
         }
@@ -77,7 +79,7 @@ struct CaptureStability {
             }
             quad=Quad(points:smoothed)
         } else {quad=candidate}
-        signature=current
+        signature=current;pageContent=content
         if delta>0.09 || movement>0.08 {credit=0;focusTime=0}
         else if delta<0.04 && movement<0.045 {credit+=dt}
         else {credit=max(0,credit-dt*0.5)}
@@ -85,6 +87,50 @@ struct CaptureStability {
         focusTime=focusing ? focusTime+dt:0
         ready=armed && credit>=0.65 && !focusing
         return ready
+    }
+}
+
+// Rectified paper only: keep fine text layout instead of a 16x16 view of the desk.
+// Mean-subtracted neighbourhoods suppress exposure pulses and broad shadows.
+enum PageFingerprint {
+    static let width=96, height=128
+    static func make(_ gray:[UInt8])->[UInt8] {
+        guard gray.count==width*height else {return []}
+        var result=[UInt8](repeating:128,count:gray.count)
+        var details=[Int](repeating:0,count:gray.count)
+        var energy=0.0
+        for y in 2..<(height-2) {for x in 2..<(width-2) {
+            var total=0
+            for dy in -2...2 {for dx in -2...2 {total+=Int(gray[(y+dy)*width+x+dx])}}
+            let detail=Int(gray[y*width+x])-total/25
+            details[y*width+x]=detail;energy+=Double(detail*detail)
+        }}
+        let rms=sqrt(energy/Double((width-4)*(height-4)))
+        let gain=min(3.0,24.0/max(8.0,rms))
+        for i in details.indices {result[i]=UInt8(max(0,min(255,128+Int(Double(details[i])*gain))))}
+        return result
+    }
+    static func changed(_ a:[UInt8],_ b:[UInt8])->Bool {
+        guard a.count==width*height,b.count==a.count else {return false}
+        // Allow one pixel of registration jitter. A different page must remain
+        // different even at its best small alignment with the captured page.
+        var best=Double.greatestFiniteMagnitude
+        for dy in -1...1 {for dx in -1...1 {
+            var total=0,count=0,changedTiles=0
+            for ty in 0..<8 {for tx in 0..<6 {
+                var tile=0,n=0
+                for y in (ty*16+3)..<(ty*16+13) {for x in (tx*16+3)..<(tx*16+13) {
+                    tile+=abs(Int(a[y*width+x])-Int(b[(y+dy)*width+x+dx]));n+=1
+                }}
+                total+=tile;count+=n
+                if tile>n*10 {changedTiles+=1}
+            }}
+            let mean=Double(total)/Double(count)
+            // Distributed text changes, not one moving finger or one noisy dot.
+            let score=changedTiles>=4 ? mean:0
+            best=min(best,score)
+        }}
+        return best>3.5
     }
 }
 
