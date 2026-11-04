@@ -39,7 +39,9 @@ extension Imaging {
             let box=observation.boundingBox
             // Circular seals and isolated glyphs are weak direction evidence.
             let aspect=box.width*Double(cg.width)/max(1,box.height*Double(cg.height))
-            guard aspect>=2,let text=observation.topCandidates(1).first else {continue}
+            guard let text=observation.topCandidates(1).first else {continue}
+            if aspect>=1.3,text.confidence>=0.3 {evidence.rawScore+=Double(min(100,text.string.filter{$0.isLetter}.count))*pow(Double(text.confidence),2)}
+            guard aspect>=2 else {continue}
             let line=OrientationText.line(text.string,confidence:Double(text.confidence))
             evidence.score+=line.score;evidence.anchors+=line.anchors;evidence.lines+=line.lines
         }

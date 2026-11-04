@@ -136,6 +136,7 @@ enum PageFingerprint {
 
 struct OrientationReading {
     var score=0.0
+    var rawScore=0.0
     var anchors=0
     var lines=0
 }
@@ -151,9 +152,16 @@ enum OrientationText {
         let quality=max(0,min(1,confidence))
         return OrientationReading(score:(Double(letters)*0.25+Double(hits)*28)*quality*quality,anchors:hits,lines:1)
     }
-    static func choose(_ readings:[OrientationReading],manual:Int?)->(turns:Int,uncertain:Bool) {
+    static func choose(_ readings:[OrientationReading],axis:TextAxis?=nil,manual:Int?)->(turns:Int,uncertain:Bool) {
         if let manual {return ((manual%4+4)%4,false)}
         guard readings.count==4 else {return (0,true)}
+        if let axis,axis.reliable,axis.vertical>axis.horizontal {
+            // A reliable sideways text axis requires a quarter-turn even when
+            // Ukrainian words are absent from the small lexical vocabulary.
+            let a=readings[1],b=readings[3]
+            let left=a.score+a.rawScore,right=b.score+b.rawScore
+            return (right>left ? 3:1,abs(left-right)<15)
+        }
         let ordered=(0..<4).sorted {
             if readings[$0].score==readings[$1].score {return $0<$1}
             return readings[$0].score>readings[$1].score
@@ -1096,5 +1104,22 @@ enum EdgeFringe {
             }
         }
         return result
+    }
+}
+
+
+enum ScanNaming {
+    static func shortName(_ name:String)->String {
+        let words=name.split(whereSeparator:{$0.isWhitespace}).map(String.init)
+        guard words.count==3,NameFinder.plausiblePerson(name) else{return name.trimmingCharacters(in:.whitespacesAndNewlines)}
+        return words[0]+"_"+words.dropFirst().compactMap{$0.first.map{String($0).uppercased()}}.joined()
+    }
+    static func suffix(_ text:String)->String {
+        text.split(whereSeparator:{$0.isWhitespace || $0=="_" || "/\\:*?\"<>|".contains($0)}).joined(separator:"_")
+    }
+    static func compose(_ base:String,suffix value:String)->String {
+        let name=shortName(base),ending=suffix(value)
+        guard !name.isEmpty else{return ""}
+        return name+(ending.isEmpty ? "":"_"+ending)
     }
 }

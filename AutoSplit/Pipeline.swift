@@ -212,7 +212,7 @@ extension Imaging {
                 for turn in 0..<4 where !candidates.contains(turn) {readings[turn]=try orientationReading(rotate(sample,turns:turn))}
             }
         }
-        let decision=OrientationText.choose(readings,manual:leaf.manualTurns)
+        let decision=OrientationText.choose(readings,axis:axis,manual:leaf.manualTurns)
         let turns=decision.turns
         let final=try finishPage(rotate(cropped,turns:turns),leaf:leaf,verified:crop.verified)
         let image=final.image

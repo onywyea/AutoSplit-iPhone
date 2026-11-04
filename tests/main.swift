@@ -518,3 +518,16 @@ check(OrientationText.choose([sparseBody,OrientationReading(),sparseBody,Orienta
 check(OrientationText.choose([OrientationReading(),OrientationReading(),noisySeal,OrientationReading()],manual:nil).turns==0,"isolated seal cannot invert a page")
 check(OrientationText.choose([sparseBody,sparseBody,sparseBody,sparseBody],manual:3).turns==3,"manual direction is preserved")
 print("All \(passed) checks including sparse and stamped page orientation passed")
+
+let sidewaysAxis=TextAxis(horizontal:15,vertical:120,components:200)
+var leftReading=OrientationReading();leftReading.rawScore=300
+var rightReading=OrientationReading();rightReading.rawScore=20
+check(OrientationText.choose([OrientationReading(),leftReading,OrientationReading(),rightReading],axis:sidewaysAxis,manual:nil).turns==1,"sideways text rotates without dictionary anchors")
+check(OrientationText.choose([OrientationReading(),rightReading,OrientationReading(),leftReading],axis:sidewaysAxis,manual:nil).turns==3,"raw OCR resolves opposite quarter-turn")
+check(OrientationText.choose([OrientationReading(),OrientationReading(),OrientationReading(),OrientationReading()],axis:sidewaysAxis,manual:nil).turns==1,"ambiguous words cannot cancel reliable sideways axis")
+check(OrientationText.choose([OrientationReading(),leftReading,OrientationReading(),rightReading],axis:sidewaysAxis,manual:0).turns==0,"manual upright overrides sideways analysis")
+check(ScanNaming.compose("Дяпкін Денис Володимирович",suffix:"_ПКМУ168_мати")=="Дяпкін_ДВ_ПКМУ168_мати","Ukrainian surname initials and relative suffix")
+check(ScanNaming.compose("Дяпкін_ДВ",suffix:" ПКМУ975  ")=="Дяпкін_ДВ_ПКМУ975","short name stays stable")
+check(ScanNaming.suffix("__ПКМУ168__мати / дочка ")=="ПКМУ168_мати_дочка","suffix normalization removes spaces and invalid separators")
+check(ScanNaming.shortName("Мій власний скан")=="Мій власний скан","custom title stays intact")
+print("All \(passed) checks including naming and sideways regression passed")

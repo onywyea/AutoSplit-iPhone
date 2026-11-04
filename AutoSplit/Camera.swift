@@ -100,6 +100,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                     self.captureAllowedAfter=Date().addingTimeInterval(0.7)
                     self.frames.async {self.qualityHold.reset();self.tracker.resetStability()}
                     self.session.startRunning()
+                    self.prepareHighResolutionCapture()
                     self.publishLenses()
                 } catch {
                     if !self.configured { self.session.commitConfiguration() }
@@ -123,7 +124,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         let id=camera?.uniqueID ?? ""
         let supported=camera?.hasFlash == true && output.supportedFlashModes.contains(.on)
         let pixels=Double(output.maxPhotoDimensions.width)*Double(output.maxPhotoDimensions.height)/1_000_000
-        let resolution=String(format:"Максимум об’єктива: %.0f Мп",pixels)
+        let resolution=String(format:"Запит камери: %.1f Мп",pixels)
         DispatchQueue.main.async {self.requestedResolution=resolution;self.resolutionStatus="";self.lenses=choices;self.selectedLensID=id;self.flashSupported=supported;self.lastFlashFired=nil}
     }
     // Must be called with the device configuration lock on the camera queue.
@@ -175,16 +176,16 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         device.setExposureTargetBias(bias,completionHandler:nil)
     }
     private func configureMaximumFormat(_ device:AVCaptureDevice) {
-        func pixels(_ format:AVCaptureDevice.Format)->Int64 {
-            format.supportedMaxPhotoDimensions.map {Int64($0.width)*Int64($0.height)}.max() ?? 0
-        }
-        guard let best=device.formats.max(by:{pixels($0)<pixels($1)}),pixels(best)>pixels(device.activeFormat) else {return}
-        do {
-            try device.lockForConfiguration()
-            device.activeFormat=best
-            device.unlockForConfiguration()
-            if session.canSetSessionPreset(.inputPriority) {session.sessionPreset = .inputPriority}
-        } catch { /* Keep the current supported format and report its real size. */ }
+        // High-resolution processed photos require the photo session preset.
+        if session.canSetSessionPreset(.photo) {session.sessionPreset = .photo}
+    }
+
+    private func prepareHighResolutionCapture() {
+        let settings=AVCapturePhotoSettings(format:[AVVideoCodecKey:AVVideoCodecType.jpeg])
+        settings.maxPhotoDimensions=output.maxPhotoDimensions
+        settings.photoQualityPrioritization = .quality
+        if output.supportedFlashModes.contains(.on),flashEnabled {settings.flashMode = .on}
+        output.setPreparedPhotoSettingsArray([settings],completionHandler:nil)
     }
     private func configurePhotoDimensions(_ device:AVCaptureDevice) {
         let dimensions=device.activeFormat.supportedMaxPhotoDimensions
@@ -539,6 +540,7 @@ struct CaptureView:View {
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
     @StateObject private var engine=CameraEngine()
+    @StateObject private var level=CameraLevelModel()
     @Environment(\.scenePhase) private var scenePhase
     @State private var previousIdleTimer:Bool?
     @State private var visible=false
@@ -584,6 +586,7 @@ struct CaptureView:View {
                 CameraFocusControls(engine:engine,disabled:waiting).padding(.horizontal,22)
                 Text(engine.resolutionStatus.isEmpty ? engine.requestedResolution:engine.resolutionStatus)
                     .font(.caption2.monospacedDigit()).padding(6).background(.black.opacity(0.55),in:Capsule()).allowsHitTesting(false)
+                CameraLevelBadge(level:level)
                 if exposure {
                     HStack {
                         Image(systemName:"sun.min")
@@ -636,7 +639,7 @@ struct CaptureView:View {
                 }
             }
         }
-        .onDisappear {visible=false;engine.stop();UIApplication.shared.isIdleTimerDisabled=previousIdleTimer ?? false;previousIdleTimer=nil;store.save()}
+        .onDisappear {visible=false;engine.stop();level.stop();UIApplication.shared.isIdleTimerDisabled=previousIdleTimer ?? false;previousIdleTimer=nil;store.save()}
         .onChange(of:auto){_,value in engine.setAuto(value)}
         .onChange(of:reviewing){_,_ in updateCameraActivity()}
         .onChange(of:scenePhase){_,_ in updateCameraActivity()}
@@ -650,7 +653,7 @@ struct CaptureView:View {
     private func updateCameraActivity() {
         let active=visible && scenePhase == .active && !reviewing
         UIApplication.shared.isIdleTimerDisabled=active ? true : (previousIdleTimer ?? false)
-        if active {engine.start()}else{engine.stop()}
+        if active {engine.start();level.start()}else{engine.stop();level.stop()}
     }
 
 }

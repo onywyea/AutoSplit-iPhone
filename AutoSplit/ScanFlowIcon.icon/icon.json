@@ -18,84 +18,75 @@
   ],
   "groups": [
     {
-      "name": "Document",
+      "name": "Classic scanner",
       "layers": [
         {
-          "name": "Page",
-          "image-name": "Page.svg",
+          "name": "Original scanner",
+          "image-name": "Classic.png",
+          "glass": false
+        }
+      ],
+      "specular": false,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      }
+    },
+    {
+      "name": "Glass front panel",
+      "layers": [
+        {
+          "name": "Glass front panel",
+          "image-name": "GlassPanel.svg",
           "glass": true
         }
       ],
+      "specular": true,
       "shadow": {
         "kind": "neutral",
-        "opacity": 0.18
+        "opacity": 0
       },
+      "translucency": {
+        "enabled": true,
+        "value": 0.85
+      }
+    },
+    {
+      "name": "Glass button",
+      "layers": [
+        {
+          "name": "Glass button",
+          "image-name": "GlassButton.svg",
+          "glass": true
+        }
+      ],
       "specular": true,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.25
+      }
+    },
+    {
+      "name": "Scan light",
+      "layers": [
+        {
+          "name": "Scan light",
+          "image-name": "GlassBeam.svg",
+          "glass": true
+        }
+      ],
+      "specular": true,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      },
       "translucency": {
         "enabled": true,
         "value": 0.1
-      }
-    },
-    {
-      "name": "Page details",
-      "layers": [
-        {
-          "name": "Fold",
-          "image-name": "Fold.svg",
-          "glass": true
-        },
-        {
-          "name": "Ink",
-          "image-name": "Ink.svg",
-          "glass": true
-        }
-      ],
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.18
-      },
-      "specular": true,
-      "translucency": {
-        "enabled": true,
-        "value": 0.05
-      }
-    },
-    {
-      "name": "Scan frame",
-      "layers": [
-        {
-          "name": "Corners",
-          "image-name": "Corners.svg",
-          "glass": true
-        }
-      ],
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.18
-      },
-      "specular": true,
-      "translucency": {
-        "enabled": true,
-        "value": 0.24
-      }
-    },
-    {
-      "name": "Scan beam",
-      "layers": [
-        {
-          "name": "Beam",
-          "image-name": "Beam.svg",
-          "glass": true
-        }
-      ],
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.18
-      },
-      "specular": true,
-      "translucency": {
-        "enabled": true,
-        "value": 0.16
       }
     }
   ],

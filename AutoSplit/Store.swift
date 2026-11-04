@@ -3,6 +3,7 @@ import PDFKit
 
 @MainActor
 final class ScannerStore:ObservableObject {
+    @Published var folders:[ScanFolder]=[]
     @Published var documents:[ScanDocument]=[]
     @Published var busy=false
     @Published var savingPhotos=0
@@ -11,11 +12,15 @@ final class ScannerStore:ObservableObject {
     @Published var shareURLs:[URL]=[]
     @Published var exportSummary=""
     private var stopped=false
-    init() { do { documents=try Disk.load() } catch { self.error="Не вдалося відкрити список сканів: \(error.localizedDescription)" } }
+    init() { do { documents=try Disk.load();folders=try Disk.loadFolders()
+        for i in documents.indices where NameFinder.plausiblePerson(documents[i].title) {
+            documents[i].personName=documents[i].title
+            documents[i].title=ScanNaming.compose(documents[i].title,suffix:documents[i].nameSuffix ?? "")
+        } } catch { self.error="Не вдалося відкрити список сканів: \(error.localizedDescription)" } }
     func document(_ id:UUID)->ScanDocument? { documents.first{$0.id==id} }
     func index(_ id:UUID)->Int? { documents.firstIndex{$0.id==id} }
     func save() { do { try Disk.save(documents) } catch { self.error=error.localizedDescription } }
-    func newDocument()->UUID { let doc=ScanDocument(); documents.insert(doc,at:0); save(); return doc.id }
+    func newDocument(folderID:UUID?=nil)->UUID { var doc=ScanDocument();doc.folderID=folderID; documents.insert(doc,at:0); save(); return doc.id }
     func cancel() { stopped=true; status="Зупинка після поточної сторінки…" }
     func addImage(_ image:UIImage,to id:UUID,sourceKind:String="image",prepare:Bool=false,pdfFile:String?=nil,pdfPage:Int?=nil,encodedOriginal:Data?=nil) async {
         guard index(id) != nil else { return }
@@ -108,7 +113,7 @@ final class ScannerStore:ObservableObject {
                 guard let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) else { continue }
                 documents[i].pages[p].output=output; documents[i].pages[p].quad=result.quad
                 documents[i].pages[p].turns=result.turns; documents[i].pages[p].text=result.text
-                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified;documents[i].pages[p].edgeRepairCount=result.edgeRepairCount;documents[i].pages[p].edgeRevision=16; documents[i].pages[p].ocrReady=true;documents[i].pages[p].orientationRevision=1;documents[i].pages[p].reviewed=nil;shareURLs=[];exportSummary="";save()
+                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified;documents[i].pages[p].edgeRepairCount=result.edgeRepairCount;documents[i].pages[p].edgeRevision=16; documents[i].pages[p].ocrReady=true;documents[i].pages[p].orientationRevision=2;documents[i].pages[p].reviewed=nil;shareURLs=[];exportSummary="";save()
             } catch {
                 if let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) { documents[i].pages[p].note=error.localizedDescription }
             }
@@ -142,7 +147,7 @@ final class ScannerStore:ObservableObject {
         var changed=false
         for p in documents[i].pages.indices {
             let leaf=documents[i].pages[p]
-            if leaf.manualTurns==nil && (leaf.orientationRevision ?? 0)<1 {
+            if leaf.manualTurns==nil && (leaf.orientationRevision ?? 0)<2 {
                 documents[i].pages[p].ocrReady=false;changed=true
             }
         }
@@ -185,9 +190,15 @@ final class ScannerStore:ObservableObject {
         let explicit=candidates.filter(\.explicit)
         let first=documents[i].pages.first.map {NameFinder.candidates($0.text).filter(\.explicit)} ?? []
         if !documents[i].nameConfirmed {
-            if first.count==1 {documents[i].title=first[0].name}
-            else if explicit.count==1 {documents[i].title=explicit[0].name}
-            else if candidates.count==1,NameFinder.plausiblePerson(candidates[0].name) {documents[i].title=candidates[0].name}
+            let chosen:String?
+            if first.count==1 {chosen=first[0].name}
+            else if explicit.count==1 {chosen=explicit[0].name}
+            else if candidates.count==1,NameFinder.plausiblePerson(candidates[0].name) {chosen=candidates[0].name}
+            else {chosen=nil}
+            if let chosen {
+                documents[i].personName=chosen
+                documents[i].title=ScanNaming.compose(chosen,suffix:documents[i].nameSuffix ?? "")
+            }
         }
         save()
     }
@@ -235,7 +246,39 @@ final class ScannerStore:ObservableObject {
         status=success ? "Стиль застосовано · \(completed) стор.":"Зупинено. Змінено \(completed) сторінок"
         return success
     }
-    func rename(_ id:UUID,_ title:String) { guard let i=index(id) else{return}; documents[i].title=title; documents[i].nameConfirmed=true; save() }
+    func rename(_ id:UUID,_ title:String,suffix:String="") {
+        guard let i=index(id) else{return}
+        documents[i].personName=NameFinder.plausiblePerson(title) ? title:nil
+        documents[i].nameSuffix=ScanNaming.suffix(suffix)
+        documents[i].title=ScanNaming.compose(title,suffix:suffix)
+        documents[i].nameConfirmed=true;save()
+    }
+    @discardableResult func createFolder(_ name:String)->UUID? {
+        let name=name.trimmingCharacters(in:.whitespacesAndNewlines)
+        guard !busy,savingPhotos==0,!name.isEmpty else{return nil}
+        let folder=ScanFolder(name:name)
+        do {try Disk.saveFolders(folders+[folder]);folders.append(folder);return folder.id}
+        catch {self.error=error.localizedDescription;return nil}
+    }
+    func renameFolder(_ id:UUID,_ name:String) {
+        guard !busy,savingPhotos==0,let i=folders.firstIndex(where:{$0.id==id}) else{return}
+        let name=name.trimmingCharacters(in:.whitespacesAndNewlines);guard !name.isEmpty else{return}
+        var updated=folders;updated[i].name=name
+        do {try Disk.saveFolders(updated);folders=updated}catch{self.error=error.localizedDescription}
+    }
+    func moveDocuments(_ ids:Set<UUID>,to folderID:UUID?) {
+        guard !busy,savingPhotos==0,folderID==nil || folders.contains(where:{$0.id==folderID}) else{return}
+        var updated=documents
+        for i in updated.indices where ids.contains(updated[i].id) {updated[i].folderID=folderID}
+        do {try Disk.save(updated);documents=updated}catch{self.error=error.localizedDescription}
+    }
+    func deleteFolder(_ id:UUID) {
+        guard !busy,savingPhotos==0 else{return}
+        moveDocuments(Set(documents.filter{$0.folderID==id}.map(\.id)),to:nil)
+        guard !documents.contains(where:{$0.folderID==id}) else{return}
+        let updated=folders.filter{$0.id != id}
+        do {try Disk.saveFolders(updated);folders=updated}catch{self.error=error.localizedDescription}
+    }
     @discardableResult
     func saveRenderedPage(_ id:UUID,leaf:Leaf,image:UIImage,changed:Int) async -> Bool {
         guard !busy,savingPhotos==0,let d=index(id),documents[d].pages.contains(where:{$0.id==leaf.id}) else {return false}

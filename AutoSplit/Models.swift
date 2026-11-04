@@ -34,9 +34,13 @@ struct CleanupStroke: Codable, Equatable {
     var points: [Point]
     var radius: Double
 }
+struct ScanFolder:Codable,Identifiable {var id=UUID();var name:String}
 struct ScanDocument: Codable, Identifiable {
     var id = UUID()
     var title = "Новий скан"
+    var folderID:UUID? = nil
+    var personName:String? = nil
+    var nameSuffix:String? = nil
     var created = Date()
     var pages: [Leaf] = []
     var candidates: [NameCandidate] = []
@@ -75,6 +79,13 @@ enum Disk {
         guard let source=CGImageSourceCreateWithURL(url(name) as CFURL,nil),
               let cg=CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceThumbnailMaxPixelSize:limit,kCGImageSourceCreateThumbnailWithTransform:true] as CFDictionary) else { return nil }
         return UIImage(cgImage:cg)
+    }
+    static func loadFolders() throws -> [ScanFolder] {
+        guard FileManager.default.fileExists(atPath:url("folders.json").path) else {return []}
+        return try JSONDecoder().decode([ScanFolder].self,from:Data(contentsOf:url("folders.json")))
+    }
+    static func saveFolders(_ folders:[ScanFolder]) throws {
+        try JSONEncoder().encode(folders).write(to:url("folders.json"),options:[.atomic,.completeFileProtection])
     }
     static func save(_ documents: [ScanDocument]) throws {
         try JSONEncoder().encode(documents).write(to:url("documents.json"),options:[.atomic,.completeFileProtection])

@@ -18,6 +18,9 @@ struct LibraryView:View {
     @State private var exporting=false
     @State private var deleting=false
     @State private var renaming:ScanDocument?
+    @State private var folder="all"
+    @State private var moving=false
+    @State private var managingFolders=false
     @State private var importing=false
     @State private var appearancePresented=false
     @State private var newCapture:UUID?
@@ -28,7 +31,8 @@ struct LibraryView:View {
             !document.pages.isEmpty && document.pages.contains(where:{$0.reviewReason != nil})
         }
     }
-    var filtered:[ScanDocument] {store.documents.filter{search.isEmpty || $0.title.localizedCaseInsensitiveContains(search)}}
+    var currentFolder:UUID? {UUID(uuidString:folder)}
+    var filtered:[ScanDocument] {store.documents.filter{(folder=="all" || (folder=="unfiled" ? $0.folderID==nil:$0.folderID==currentFolder)) && (search.isEmpty || $0.title.localizedCaseInsensitiveContains(search))}}
     var body:some View {
         NavigationStack(path:$path) {
             presentedScreen
@@ -49,6 +53,8 @@ struct LibraryView:View {
             .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true, onCompletion:importResult)
             .sheet(isPresented:$handingOff) {HandoffView(ids:selected)}
             .sheet(isPresented:$exporting) {PDFExportSheet(ids:selected)}
+            .sheet(isPresented:$moving) {FolderPicker(ids:selected)}
+            .sheet(isPresented:$managingFolders) {FolderManager()}
             .sheet(isPresented:$appearancePresented) {AppearanceSheet()}
             .sheet(item:$renaming) {document in NameSheet(documentID:document.id)}
     }
@@ -62,6 +68,8 @@ struct LibraryView:View {
             .toolbar {libraryToolbar}
             .safeAreaInset(edge:.bottom) {bottomBar}
             .navigationDestination(for:UUID.self) {id in DocumentView(documentID:id,startCamera:newCapture==id)}
+            .onChange(of:folder) {_,_ in selected=[]}
+            .onChange(of:store.folders.map(\.id)) {_,ids in if let id=currentFolder,!ids.contains(id) {folder="all"}}
             .onChange(of:path) {previous,ids in trackPath(previous,ids)}
             .onChange(of:store.documents.map(\.id)) {_,ids in selected.formIntersection(Set(ids))}
     }
@@ -70,10 +78,11 @@ struct LibraryView:View {
             LazyVStack(alignment:.leading,spacing:14) {
             if !selecting && search.isEmpty {
                 LibraryBrandSection()
-                if let document=resume {
+                if folder=="all",let document=resume {
                     LibraryResumeSection(document:document,disabled:store.busy) {path.append(document.id)}
                 }
             }
+            FolderShelf(selection:$folder,manage:{managingFolders=true})
             documentSection
             }.padding(.horizontal,18).padding(.vertical,12)
         }
@@ -98,6 +107,7 @@ struct LibraryView:View {
         .disabled(store.busy || store.savingPhotos>0)
     }
     @ViewBuilder private func documentMenu(_ document:ScanDocument)->some View {
+        Button {selected=[document.id];moving=true} label:{Label("Перемістити в папку",systemImage:"folder")}
         Button {renaming=document} label:{Label("Перейменувати",systemImage:"pencil")}
         Button {selected=[document.id];exporting=true} label:{Label("Експорт / стиснення PDF",systemImage:"square.and.arrow.up")}
         Button {selected=[document.id];handingOff=true} label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
@@ -126,7 +136,7 @@ struct LibraryView:View {
         switch result {
         case .success(let urls):
             guard !urls.isEmpty else {return}
-            let id=store.newDocument();path.append(id)
+            let id=store.newDocument(folderID:currentFolder);path.append(id)
             Task {await store.importFiles(urls,to:id);await store.analyze(id)}
         case .failure(let error):store.error=error.localizedDescription
         }
@@ -144,7 +154,7 @@ struct LibraryView:View {
         HStack(spacing:12) {
             Button {importing=true} label:{Image(systemName:"square.and.arrow.down").frame(width:34,height:44)}
                 .scanSecondaryButton().accessibilityLabel("Імпорт фото або PDF").disabled(store.busy)
-            Button {let id=store.newDocument();newCapture=id;path.append(id)} label:{
+            Button {let id=store.newDocument(folderID:currentFolder);newCapture=id;path.append(id)} label:{
                 Label("Новий скан",systemImage:"camera.fill").font(.headline).frame(maxWidth:.infinity,minHeight:44)
             }.scanPrimaryButton().disabled(store.busy)
         }
@@ -154,6 +164,7 @@ struct LibraryView:View {
             Button(role:.destructive) {deleting=true} label:{Label("Видалити",systemImage:"trash").foregroundStyle(.red)}.scanSecondaryButton()
             Spacer(minLength:0)
             Menu {
+                Button {moving=true} label:{Label("Перемістити в папку",systemImage:"folder")}
                 Button {exporting=true} label:{Label("Експорт / стиснення PDF",systemImage:"doc.zipper")}
                 Button {handingOff=true} label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
             } label:{Label("Експорт",systemImage:"square.and.arrow.up").font(.subheadline.weight(.semibold))}.scanSecondaryButton()
@@ -164,28 +175,4 @@ struct LibraryView:View {
 struct Thumb:View {
     let file:String?
     var body:some View {CachedScanThumbnail(file:file)}
-}
-struct NameSheet:View {
-    @EnvironmentObject var store:ScannerStore
-    @Environment(\.dismiss) private var dismiss
-    let documentID:UUID
-    @State private var name=""
-    var body:some View {
-        NavigationStack {
-            Form {
-                Section("Назва PDF"){TextField("Прізвище Ім’я По батькові",text:$name)}
-                Section {
-                    Button {Task {await store.analyze(documentID,force:true);name=store.document(documentID)?.title ?? name}} label:{Label("Заново розпізнати ПІБ",systemImage:"text.viewfinder")}.disabled(store.busy)
-                    if store.busy {HStack {ProgressView();Text(store.status).font(.caption)}}
-                }
-                Section {
-                    ForEach(store.document(documentID)?.candidates ?? []) { candidate in
-                        Button{name=candidate.name}label:{VStack(alignment:.leading,spacing:6){Text(candidate.name).foregroundStyle(.primary);Text(candidate.evidence).font(.caption).foregroundStyle(.secondary)}}
-                    }
-                } header:{Text("Знайдені імена")}footer:{Text("Програма не завжди розрізняє військовослужбовця, заявника й родичів. Відмінок ПІБ автоматично не виправляється.")}
-            }.navigationTitle("Назва документа").navigationBarTitleDisplayMode(.inline)
-            .toolbar{ToolbarItem(placement:.cancellationAction){Button("Скасувати"){dismiss()}};ToolbarItem(placement:.confirmationAction){Button("Зберегти"){store.rename(documentID,name);dismiss()}.disabled(name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)}}
-            .onAppear{name=store.document(documentID)?.title ?? ""}
-        }
-    }
 }
