@@ -50,6 +50,10 @@ enum Imaging {
             try VNImageRequestHandler(cgImage:rotated.cgImage!).perform([request])
             for line in (request.results ?? []).prefix(3) {
                 let text=line.topCandidates(1).first
+                if let text,let first=text.string.indices.first(where:{text.string[$0].isLetter}),let last=text.string.indices.last(where:{text.string[$0].isLetter}),
+                   let firstBox=try? text.boundingBox(for:first..<text.string.index(after:first)),let lastBox=try? text.boundingBox(for:last..<text.string.index(after:last)) {
+                    NSLog("Vision word advance turn %d: dx %.3f dy %.3f",turn,lastBox.boundingBox.midX-firstBox.boundingBox.midX,lastBox.boundingBox.midY-firstBox.boundingBox.midY)
+                }
                 NSLog("Vision diagnostic turn %d: %@ confidence %.3f dx %.3f dy %.3f",turn,text?.string ?? "",Double(text?.confidence ?? 0),line.topRight.x-line.topLeft.x,line.topRight.y-line.topLeft.y)
             }
         }
