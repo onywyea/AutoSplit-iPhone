@@ -323,7 +323,11 @@ enum RasterAxis {
             let total=alongRows+alongColumns
             let glyphEvidence=Double(horizontal-vertical)/Double(max(1,horizontal+vertical))
             let disagrees=(alongRows>alongColumns) != (horizontal>vertical)
-            if total>500,Double(abs(alongRows-alongColumns))/Double(total)>=0.18,disagrees || abs(glyphEvidence)<0.18 {
+            let lineEvidence=Double(abs(alongRows-alongColumns))/Double(max(1,total))
+            // A regular grid can correlate in both directions. Overruling a
+            // nearly unanimous glyph vote needs a much clearer line pattern.
+            let override=disagrees && (abs(glyphEvidence)<0.8 || lineEvidence>=0.65)
+            if total>500,lineEvidence>=0.18,override || abs(glyphEvidence)<0.18 {
                 return TextAxis(horizontal:alongRows,vertical:alongColumns,components:components)
             }
         }
