@@ -23,6 +23,7 @@ struct Leaf: Codable, Identifiable {
     var edgeChoiceExplicit:Bool? = nil
     var edgeRepairCount:Int? = nil
     var edgeRevision:Int? = nil
+    var orientationRevision:Int? = nil
     var cleanupStrokes: [CleanupStroke]? = nil
     var text = ""
     var note = "Очікує обробки"
@@ -61,6 +62,14 @@ enum Disk {
         let name=UUID().uuidString+".jpg"
         guard let bytes=image.jpegData(compressionQuality:0.97) else { throw ScanError.message("Не вдалося записати сторінку") }
         try bytes.write(to:url(name),options:[.atomic,.completeFileProtection]); return name
+    }
+    static func writeCameraOriginal(_ bytes:Data) throws -> String {
+        guard let source=CGImageSourceCreateWithData(bytes as CFData,nil),CGImageSourceGetCount(source)>0 else {
+            throw ScanError.message("Не вдалося прочитати оригінал камери")
+        }
+        let name=UUID().uuidString+".jpg"
+        try bytes.write(to:url(name),options:[.atomic,.completeFileProtection])
+        return name
     }
     static func image(_ name: String, limit: Int = 4096) -> UIImage? {
         guard let source=CGImageSourceCreateWithURL(url(name) as CFURL,nil),

@@ -197,19 +197,22 @@ extension Imaging {
         return UIImage(cgImage:output)
     }
     static func process(_ leaf:Leaf,seekName:Bool=false) throws -> PageResult {
-        guard let original=Disk.image(leaf.original) else { throw ScanError.message("Не знайдено оригінал сторінки") }
+        guard let original=Disk.image(leaf.original,limit:8192) else { throw ScanError.message("Не знайдено оригінал сторінки") }
         let crop=try cropDecision(leaf,original:original)
         let quad=crop.quad
         let repaired=try preparedImage(leaf,original:original,quad:quad,verified:crop.verified)
         let cropped=repaired.image
         let axis=textAxis(cropped)
-        var scores=[Double](repeating:0,count:4)
+        var readings=[OrientationReading](repeating:OrientationReading(),count:4)
         let candidates=axis.reliable ? (axis.evidence>0 ? [0,2] : [1,3]) : [0,1,2,3]
-        for turn in candidates where leaf.manualTurns == nil {
-            let read=try recognize(rotate(resized(cropped,limit:2200),turns:turn),fast:false)
-            scores[turn]=Double(read.1)*Double(min(3000,read.0.filter(\.isLetter).count))
+        if leaf.manualTurns==nil {
+            let sample=try orientationSample(cropped)
+            for turn in candidates {readings[turn]=try orientationReading(rotate(sample,turns:turn))}
+            if (readings.map(\.anchors).max() ?? 0)<3 {
+                for turn in 0..<4 where !candidates.contains(turn) {readings[turn]=try orientationReading(rotate(sample,turns:turn))}
+            }
         }
-        let decision=RasterAxis.choose(scores:scores,axis:axis,manual:leaf.manualTurns)
+        let decision=OrientationText.choose(readings,manual:leaf.manualTurns)
         let turns=decision.turns
         let final=try finishPage(rotate(cropped,turns:turns),leaf:leaf,verified:crop.verified)
         let image=final.image
@@ -233,7 +236,7 @@ extension Imaging {
     }
     static func render(_ leaf:Leaf) throws -> UIImage {try renderWithEdgeReport(leaf).image}
     static func renderWithEdgeReport(_ leaf:Leaf) throws -> EdgeRepairResult {
-        guard let original=Disk.image(leaf.original) else { throw ScanError.message("Оригінал відсутній") }
+        guard let original=Disk.image(leaf.original,limit:8192) else { throw ScanError.message("Оригінал відсутній") }
         let crop=try cropDecision(leaf,original:original)
         let prepared=try preparedImage(leaf,original:original,quad:crop.quad,verified:crop.verified)
         let final=try finishPage(rotate(prepared.image,turns:leaf.turns),leaf:leaf,verified:crop.verified)

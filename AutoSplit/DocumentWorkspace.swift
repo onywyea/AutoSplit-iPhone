@@ -91,6 +91,7 @@ struct DocumentView:View {
     }
     private func openDocument() async {
         if startCamera && !didStartCamera {didStartCamera=true;capturing=true;return}
+        await store.ensureOrientation(documentID)
         await store.ensureEdgeProcessing(documentID)
         if pages.contains(where:{!$0.ocrReady}) {await store.analyze(documentID)}
         else {store.refreshNames(documentID)}

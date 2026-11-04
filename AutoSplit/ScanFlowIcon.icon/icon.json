@@ -1,0 +1,105 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:1.00000,0.55294,0.27059,1.00000",
+      "srgb:0.93725,0.21961,0.07843,1.00000"
+    ]
+  },
+  "fill-specializations": [
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.34118,0.13725,0.08235,1.00000",
+          "srgb:0.14118,0.07451,0.05882,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Document",
+      "layers": [
+        {
+          "name": "Page",
+          "image-name": "Page.svg",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.18
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.1
+      }
+    },
+    {
+      "name": "Page details",
+      "layers": [
+        {
+          "name": "Fold",
+          "image-name": "Fold.svg",
+          "glass": true
+        },
+        {
+          "name": "Ink",
+          "image-name": "Ink.svg",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.18
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.05
+      }
+    },
+    {
+      "name": "Scan frame",
+      "layers": [
+        {
+          "name": "Corners",
+          "image-name": "Corners.svg",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.18
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.24
+      }
+    },
+    {
+      "name": "Scan beam",
+      "layers": [
+        {
+          "name": "Beam",
+          "image-name": "Beam.svg",
+          "glass": true
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.18
+      },
+      "specular": true,
+      "translucency": {
+        "enabled": true,
+        "value": 0.16
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 #if !compiler(>=6.2)
-#error("ScanFlow 0.4.10 needs Xcode 26+. Upload .github/workflows/build.yml from this update and start a NEW Run workflow.")
+#error("ScanFlow 0.4.11 needs Xcode 26+. Upload .github/workflows/build.yml from this update and start a NEW Run workflow.")
 #endif
 
 extension Color {
@@ -117,7 +117,7 @@ struct AppearanceSheet:View {
                     Label(effect,systemImage:"circle.lefthalf.filled")
                     Text("Документ не покривається склом. Пониження прозорості в налаштуваннях iPhone вимикає прозорі ефекти.").font(.caption).foregroundStyle(.secondary)
                 }
-                Section("Версія") {Text("ScanFlow 0.4.10 · 29")}
+                Section("Версія") {Text("ScanFlow 0.4.11 · 30")}
             }.navigationTitle("Вигляд").navigationBarTitleDisplayMode(.inline)
                 .toolbar {ToolbarItem(placement:.confirmationAction) {Button("Готово") {dismiss()}}}
         }.tint(.accent)

@@ -17,7 +17,7 @@ final class ScannerStore:ObservableObject {
     func save() { do { try Disk.save(documents) } catch { self.error=error.localizedDescription } }
     func newDocument()->UUID { let doc=ScanDocument(); documents.insert(doc,at:0); save(); return doc.id }
     func cancel() { stopped=true; status="Зупинка після поточної сторінки…" }
-    func addImage(_ image:UIImage,to id:UUID,sourceKind:String="image",prepare:Bool=false,pdfFile:String?=nil,pdfPage:Int?=nil) async {
+    func addImage(_ image:UIImage,to id:UUID,sourceKind:String="image",prepare:Bool=false,pdfFile:String?=nil,pdfPage:Int?=nil,encodedOriginal:Data?=nil) async {
         guard index(id) != nil else { return }
         savingPhotos += 1
         defer { savingPhotos -= 1 }
@@ -26,7 +26,8 @@ final class ScannerStore:ObservableObject {
                 try autoreleasepool {
                     let values=try FileManager.default.attributesOfFileSystem(forPath:Disk.root.path)
                     if let free=values[.systemFreeSize] as? NSNumber,free.int64Value<80_000_000 { throw ScanError.message("Замало вільного місця для наступної сторінки") }
-                    return try Disk.writeImage(Imaging.resized(image,limit:4096))
+                    if sourceKind=="camera",let encodedOriginal {return try Disk.writeCameraOriginal(encodedOriginal)}
+                    return try Disk.writeImage(Imaging.resized(image,limit:sourceKind=="camera" ? 8192:4096))
                 }
             }.value
             guard let i=index(id) else { return }
@@ -107,7 +108,7 @@ final class ScannerStore:ObservableObject {
                 guard let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) else { continue }
                 documents[i].pages[p].output=output; documents[i].pages[p].quad=result.quad
                 documents[i].pages[p].turns=result.turns; documents[i].pages[p].text=result.text
-                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified;documents[i].pages[p].edgeRepairCount=result.edgeRepairCount;documents[i].pages[p].edgeRevision=16; documents[i].pages[p].ocrReady=true;documents[i].pages[p].reviewed=nil;shareURLs=[];exportSummary="";save()
+                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified;documents[i].pages[p].edgeRepairCount=result.edgeRepairCount;documents[i].pages[p].edgeRevision=16; documents[i].pages[p].ocrReady=true;documents[i].pages[p].orientationRevision=1;documents[i].pages[p].reviewed=nil;shareURLs=[];exportSummary="";save()
             } catch {
                 if let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) { documents[i].pages[p].note=error.localizedDescription }
             }
@@ -135,6 +136,17 @@ final class ScannerStore:ObservableObject {
             documents[i].pages[p].edgeFill=true;documents[i].pages[p].edgeRevision=nil
         }
         error=nil;save();await analyze(id,force:true)
+    }
+    func ensureOrientation(_ id:UUID) async {
+        guard !busy,let i=index(id) else {return}
+        var changed=false
+        for p in documents[i].pages.indices {
+            let leaf=documents[i].pages[p]
+            if leaf.manualTurns==nil && (leaf.orientationRevision ?? 0)<1 {
+                documents[i].pages[p].ocrReady=false;changed=true
+            }
+        }
+        if changed {save();await analyze(id)}
     }
     func ensureEdgeProcessing(_ id:UUID,force:Bool=false) async {
         guard !busy,let doc=document(id) else {return}
@@ -302,7 +314,10 @@ final class ScannerStore:ObservableObject {
         }
     }
     func export(_ ids:Set<UUID>,task:String?=nil,compression:PDFCompression = .original) async {
-        guard !busy else{return};busy=true;error=nil;status="Підготовка PDF…";shareURLs=[];exportSummary=""
+        guard !busy else{return}
+        for id in ids {await ensureOrientation(id)}
+        guard !busy else {return}
+        busy=true;error=nil;status="Підготовка PDF…";shareURLs=[];exportSummary=""
         defer{busy=false}
         let selected=documents.filter{ids.contains($0.id)}
         do {

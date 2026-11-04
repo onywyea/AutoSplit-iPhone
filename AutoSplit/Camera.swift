@@ -56,8 +56,10 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     @Published var detectedQuad:Quad?
     @Published var frameAspect:CGFloat=0.75
     @Published var brightness=0.3
+    @Published var resolutionStatus=""
+    @Published var requestedResolution=""
     @Published var lastFlashFired:Bool?
-    var captured:((UIImage)->Void)?
+    var captured:((UIImage,Data)->Void)?
     func start() {
         queue.async {self.runningWanted=true}
         AVCaptureDevice.requestAccess(for:.video) { [weak self] granted in
@@ -85,6 +87,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                         guard self.session.canAddInput(input),self.session.canAddOutput(self.output) else { throw ScanError.message("Не вдалося налаштувати камеру") }
                         self.session.addInput(input);self.cameraInput=input; self.session.addOutput(self.output)
                         self.output.maxPhotoQualityPrioritization = .quality
+                        self.configureMaximumFormat(device)
                         self.configurePhotoDimensions(device)
                         let video=AVCaptureVideoDataOutput(); video.alwaysDiscardsLateVideoFrames=true
                         video.setSampleBufferDelegate(self,queue:self.frames)
@@ -119,7 +122,9 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         }
         let id=camera?.uniqueID ?? ""
         let supported=camera?.hasFlash == true && output.supportedFlashModes.contains(.on)
-        DispatchQueue.main.async {self.lenses=choices;self.selectedLensID=id;self.flashSupported=supported;self.lastFlashFired=nil}
+        let pixels=Double(output.maxPhotoDimensions.width)*Double(output.maxPhotoDimensions.height)/1_000_000
+        let resolution=String(format:"Максимум об’єктива: %.0f Мп",pixels)
+        DispatchQueue.main.async {self.requestedResolution=resolution;self.resolutionStatus="";self.lenses=choices;self.selectedLensID=id;self.flashSupported=supported;self.lastFlashFired=nil}
     }
     // Must be called with the device configuration lock on the camera queue.
     private func configureFocus(_ device:AVCaptureDevice,series:Bool,point:CGPoint=CGPoint(x:0.5,y:0.5),waitForDocument:Bool=false) {
@@ -169,10 +174,21 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         let bias=min(device.maxExposureTargetBias,max(device.minExposureTargetBias,exposureBias))
         device.setExposureTargetBias(bias,completionHandler:nil)
     }
+    private func configureMaximumFormat(_ device:AVCaptureDevice) {
+        func pixels(_ format:AVCaptureDevice.Format)->Int64 {
+            format.supportedMaxPhotoDimensions.map {Int64($0.width)*Int64($0.height)}.max() ?? 0
+        }
+        guard let best=device.formats.max(by:{pixels($0)<pixels($1)}),pixels(best)>pixels(device.activeFormat) else {return}
+        do {
+            try device.lockForConfiguration()
+            device.activeFormat=best
+            device.unlockForConfiguration()
+            if session.canSetSessionPreset(.inputPriority) {session.sessionPreset = .inputPriority}
+        } catch { /* Keep the current supported format and report its real size. */ }
+    }
     private func configurePhotoDimensions(_ device:AVCaptureDevice) {
         let dimensions=device.activeFormat.supportedMaxPhotoDimensions
-        let usable=dimensions.filter {Int64($0.width)*Int64($0.height)<=25_000_000}
-        if let best=(usable.isEmpty ? dimensions:usable).max(by:{Int64($0.width)*Int64($0.height)<Int64($1.width)*Int64($1.height)}) {
+        if let best=dimensions.max(by:{Int64($0.width)*Int64($0.height)<Int64($1.width)*Int64($1.height)}) {
             output.maxPhotoDimensions=best
         }
         for item in session.outputs {
@@ -199,6 +215,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                     self.session.addInput(input)
                     self.processingLock.lock();self.camera=device;self.needsDocumentFocus=true;self.processingLock.unlock()
                     self.cameraInput=input
+                    self.configureMaximumFormat(device)
                     self.configurePhotoDimensions(device)
                     self.session.commitConfiguration()
                     UserDefaults.standard.set(id,forKey:"scanflow.cameraLens")
@@ -302,7 +319,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             }
             self.capturing=true
             DispatchQueue.main.async { self.shooting=true }
-            let settings=AVCapturePhotoSettings()
+            let settings=AVCapturePhotoSettings(format:[AVVideoCodecKey:AVVideoCodecType.jpeg])
             settings.photoQualityPrioritization = .quality
             settings.maxPhotoDimensions=self.output.maxPhotoDimensions
             let selectedMode:AVCaptureDevice.FlashMode=self.useFlash && self.camera?.hasFlash == true ? .on : .off
@@ -338,7 +355,10 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
            let exif=properties[kCGImagePropertyExifDictionary] as? [CFString:Any],
            let flag=exif[kCGImagePropertyExifFlash] as? NSNumber {fired=(flag.intValue & 1)==1}
         let actualFlash=fired
-        DispatchQueue.main.async { self.lastFlashFired=actualFlash; self.captured?(image)
+        let dimensions=photo.resolvedSettings.photoDimensions
+        let megapixels=Double(dimensions.width)*Double(dimensions.height)/1_000_000
+        let resolution=String(format:"Знято %.1f Мп · %d×%d",megapixels,dimensions.width,dimensions.height)
+        DispatchQueue.main.async { self.resolutionStatus=resolution;self.lastFlashFired=actualFlash; self.captured?(image,bytes)
         }
     }
     private func frameSignature(_ buffer:CVPixelBuffer)->[UInt8] {
@@ -562,6 +582,8 @@ struct CaptureView:View {
                 }.font(.title3).padding(12).scanGlass().padding(.horizontal,16)
                 CameraLensPicker(engine:engine,disabled:waiting).padding(.horizontal,22)
                 CameraFocusControls(engine:engine,disabled:waiting).padding(.horizontal,22)
+                Text(engine.resolutionStatus.isEmpty ? engine.requestedResolution:engine.resolutionStatus)
+                    .font(.caption2.monospacedDigit()).padding(6).background(.black.opacity(0.55),in:Capsule()).allowsHitTesting(false)
                 if exposure {
                     HStack {
                         Image(systemName:"sun.min")
@@ -606,10 +628,10 @@ struct CaptureView:View {
             visible=true
             if previousIdleTimer==nil {previousIdleTimer=UIApplication.shared.isIdleTimerDisabled}
             updateCameraActivity()
-            engine.captured={ [weak engine] image in
+            engine.captured={ [weak engine] image,bytes in
                 engine?.setProcessing(true)
                 Task {
-                    await store.addImage(image,to:documentID,sourceKind:"camera",prepare:true)
+                    await store.addImage(image,to:documentID,sourceKind:"camera",prepare:true,encodedOriginal:bytes)
                     engine?.setProcessing(false)
                 }
             }

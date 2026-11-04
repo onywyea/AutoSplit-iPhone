@@ -499,3 +499,22 @@ for step in 13...23 {
     check(!fastSwap.update(trackingQuad,signature:cameraSignature,time:Double(step)*0.21,focusing:false,pageContent:pageB),"newly captured replacement is not duplicated")
 }
 print("All \(passed) checks including fast page replacement passed")
+
+func bodyEvidence(_ lines:[String])->OrientationReading {
+    var result=OrientationReading()
+    for text in lines {
+        let line=OrientationText.line(text,confidence:0.92)
+        result.score+=line.score;result.anchors+=line.anchors;result.lines+=line.lines
+    }
+    return result
+}
+let sparseBody=bodyEvidence(["Командир військової частини", "Підтверджую достовірність внесення персональних даних", "Власне ім’я та прізвище", "Начальника штабу заступника командира"])
+let noisySeal=bodyEvidence(["України код Україна", "абвгдеж зийклмноп рстуфхцч", "України", "код 26651975"])
+check(OrientationText.choose([sparseBody,OrientationReading(),noisySeal,OrientationReading()],manual:nil).turns==0,"signature page keeps readable body upright despite seal")
+check(OrientationText.choose([noisySeal,sparseBody,OrientationReading(),OrientationReading()],manual:nil).turns==1,"sideways form follows body vocabulary clockwise")
+check(OrientationText.choose([noisySeal,OrientationReading(),OrientationReading(),sparseBody],manual:nil).turns==3,"sideways signature page follows body counterclockwise")
+check(OrientationText.choose([noisySeal,OrientationReading(),sparseBody,OrientationReading()],manual:nil).turns==2,"genuinely upside-down text still turns upright")
+check(OrientationText.choose([sparseBody,OrientationReading(),sparseBody,OrientationReading()],manual:nil).turns==0,"tied readings do not silently flip the page")
+check(OrientationText.choose([OrientationReading(),OrientationReading(),noisySeal,OrientationReading()],manual:nil).turns==0,"isolated seal cannot invert a page")
+check(OrientationText.choose([sparseBody,sparseBody,sparseBody,sparseBody],manual:3).turns==3,"manual direction is preserved")
+print("All \(passed) checks including sparse and stamped page orientation passed")

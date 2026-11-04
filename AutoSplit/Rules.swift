@@ -134,6 +134,41 @@ enum PageFingerprint {
     }
 }
 
+struct OrientationReading {
+    var score=0.0
+    var anchors=0
+    var lines=0
+}
+enum OrientationText {
+    // Body vocabulary is evidence, never a hard-coded document template.
+    // Stamps alone and OCR character count cannot justify a half-turn.
+    static func line(_ text:String,confidence:Double)->OrientationReading {
+        let tokens=text.lowercased().split {!$0.isLetter}.map(String.init).filter {$0.count>=2}
+        let stems=["підпис","команд","прізвищ","началь","персон","підтвердж","достовір","військ","особ","установ","посад","протокол","рішен","свідоц","постанов","згод","голов","секрет","член","коміс","лікуван","засідан","народж","серія","номер","штаб","даних","найменуван","захист","україн","документ","порядок","збір","обробк","відповід","майор","полковник","дата","имя","фамил","подпис","командир","персональ","сведен","учрежден","решен","заседан","signature","surname","personal","document","certificat","commander","consent","information","date","name"]
+        guard confidence>=0.35,tokens.count>=2 else {return OrientationReading()}
+        let hits=min(4,tokens.filter {word in stems.contains {word.hasPrefix($0)}}.count)
+        let letters=min(100,tokens.reduce(0){$0+$1.count})
+        let quality=max(0,min(1,confidence))
+        return OrientationReading(score:(Double(letters)*0.25+Double(hits)*28)*quality*quality,anchors:hits,lines:1)
+    }
+    static func choose(_ readings:[OrientationReading],manual:Int?)->(turns:Int,uncertain:Bool) {
+        if let manual {return ((manual%4+4)%4,false)}
+        guard readings.count==4 else {return (0,true)}
+        let ordered=(0..<4).sorted {
+            if readings[$0].score==readings[$1].score {return $0<$1}
+            return readings[$0].score>readings[$1].score
+        }
+        let best=ordered[0],next=ordered[1],winner=readings[best],runner=readings[next]
+        let supported=winner.anchors>=3 && winner.lines>=2
+        let separated=winner.score>runner.score*1.30+15 &&
+            (winner.anchors>=runner.anchors+2 || winner.score>runner.score*1.8+30)
+        // On sparse/ambiguous pages retain the photographed direction. A stamp
+        // at the opposite edge must not silently invert the whole page.
+        guard supported,separated else {return (0,true)}
+        return (best,false)
+    }
+}
+
 enum NameFinder {
     static func candidates(_ text: String) -> [NameCandidate] {
         let upper = "[А-ЯІЇЄҐ]"
