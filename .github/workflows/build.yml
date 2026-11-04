@@ -47,7 +47,7 @@ jobs:
       - name: Check scanner core
         run: |
           python3 scripts/check_package.py
-          swiftc AutoSplit/Rules.swift tests/main.swift -o core-tests
+          swiftc AutoSplit/Rules.swift AutoSplit/RimSeal.swift tests/main.swift -o core-tests
           ./core-tests
       - name: Generate Xcode project
         run: |
@@ -62,9 +62,9 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/AutoSplit.app Payload/
-          zip -qr ScanFlow-0.4.8.ipa Payload
+          zip -qr ScanFlow-0.4.9.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ScanFlow-0.4.8-build27
-          path: ScanFlow-0.4.8.ipa
+          name: ScanFlow-0.4.9-build28
+          path: ScanFlow-0.4.9.ipa
           retention-days: 7

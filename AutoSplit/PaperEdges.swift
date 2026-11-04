@@ -59,3 +59,21 @@ extension Imaging {
         return EdgeRepairResult(image:UIImage(cgImage:rendered),changed:changed)
     }
 }
+
+extension Imaging {
+    static func sealRim(_ image:UIImage) throws -> EdgeRepairResult {
+        guard let cg=image.cgImage else {return EdgeRepairResult(image:image,changed:0)}
+        let w=cg.width,h=cg.height
+        var pixels=[UInt8](repeating:0,count:w*h*4)
+        let flags=CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+        let valid=pixels.withUnsafeMutableBytes {raw -> Bool in
+            guard let context=CGContext(data:raw.baseAddress,width:w,height:h,bitsPerComponent:8,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:flags) else {return false}
+            context.draw(cg,in:CGRect(x:0,y:0,width:w,height:h));return true
+        }
+        guard valid else {throw ScanError.message("Не вдалося перевірити зовнішній край")}
+        let result=RimSeal.apply(pixels,width:w,height:h)
+        guard result.changed>0 else {return EdgeRepairResult(image:image,changed:0)}
+        guard let provider=CGDataProvider(data:Data(result.pixels) as CFData),let rendered=CGImage(width:w,height:h,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:flags),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent) else {throw ScanError.message("Не вдалося записати зовнішній край")}
+        return EdgeRepairResult(image:UIImage(cgImage:rendered),changed:result.changed)
+    }
+}

@@ -422,3 +422,48 @@ var insetFringe=fringeBlank
 for x in 8..<232 {for c in 0..<3 {insetFringe[((fringeH-21)*fringeW+x)*4+c]=160}}
 check(!EdgeFringe.mask(insetFringe,width:fringeW,height:fringeH,margin:0).contains(255),"zero fringe margin does not reach an inset line")
 check(EdgeFringe.mask(insetFringe,width:fringeW,height:fringeH,margin:24)[(fringeH-21)*fringeW+100]==255,"fringe margin slider extends the actual search depth")
+
+var lastPass=[UInt8](repeating:255,count:240*320*4)
+for x in [8,9,40,41,42,100,101,102] {for c in 0..<3 {lastPass[((320-4)*240+x)*4+c]=244}}
+let lastPassResult=RimSeal.apply(lastPass,width:240,height:320)
+check(lastPassResult.changed>0,"final seal finds isolated faint fragments without a long-line vote")
+check(lastPassResult.pixels[((320-4)*240+40)*4]==255,"faint bottom residue is replaced with actual nearby paper")
+check(lastPassResult.pixels[(100*240+40)*4]==lastPass[(100*240+40)*4],"final seal leaves the interior exact")
+var rimGlyph=[UInt8](repeating:255,count:240*320*4)
+for y in 314..<320 {for x in 100..<103 {for c in 0..<3 {rimGlyph[(y*240+x)*4+c]=40}}}
+check(RimSeal.apply(rimGlyph,width:240,height:320).pixels==rimGlyph,"glyph thickness and inner-rim contact are protected")
+var rimBlue=[UInt8](repeating:255,count:240*320*4)
+for x in 20..<200 {let p=((320-3)*240+x)*4;rimBlue[p]=20;rimBlue[p+1]=60;rimBlue[p+2]=180}
+check(RimSeal.apply(rimBlue,width:240,height:320).pixels==rimBlue,"saturated colored stamp line is not a paper residue")
+let rimBlank=[UInt8](repeating:220,count:240*320*4)
+check(RimSeal.apply(rimBlank,width:240,height:320).pixels==rimBlank,"uniform natural paper is not brightened into a band")
+check(RimSeal.apply(lastPassResult.pixels,width:240,height:320).pixels==lastPassResult.pixels,"final edge seal is idempotent on isolated fragments")
+check(RimSeal.apply([1,2,3],width:240,height:320).pixels==[1,2,3],"invalid seal buffer is unchanged")
+var sealSafe=true
+for i in lastPass.indices {
+    if i%4==3 {if lastPass[i] != lastPassResult.pixels[i] {sealSafe=false}}
+    
+}
+for p in 0..<(240*320) {
+    let i=p*4
+    let before=54*Int(lastPass[i])+183*Int(lastPass[i+1])+19*Int(lastPass[i+2])
+    let after=54*Int(lastPassResult.pixels[i])+183*Int(lastPassResult.pixels[i+1])+19*Int(lastPassResult.pixels[i+2])
+    if after<before {sealSafe=false}
+}
+check(sealSafe,"final seal cannot lower luminance or change alpha")
+print("All \(passed) checks including final rim seal passed")
+var warmResidue=[UInt8](repeating:240,count:240*320*4)
+let warmPixel=((320-3)*240+80)*4
+warmResidue[warmPixel]=250;warmResidue[warmPixel+1]=220;warmResidue[warmPixel+2]=200
+let neutralized=RimSeal.apply(warmResidue,width:240,height:320)
+check(Array(neutralized.pixels[warmPixel..<(warmPixel+3)])==[240,240,240],"warm residue replaces all channels without keeping a red wood channel")
+var slopingResidue=[UInt8](repeating:255,count:960*1280*4)
+for x in 20..<940 {let d=2+x/160;for c in 0..<3 {slopingResidue[((1280-1-d)*960+x)*4+c]=240}}
+let sealedSlope=RimSeal.apply(slopingResidue,width:960,height:1280)
+check(sealedSlope.pixels[((1280-1-5)*960+500)*4]==255,"a slanted one-pixel edge uses local thickness instead of a tall bounding box")
+print("All \(passed) checks including warm and slanted rim residues passed")
+var faintRimGlyph=[UInt8](repeating:255,count:240*320*4)
+for y in 314..<320 {for x in 100..<103 {for c in 0..<3 {faintRimGlyph[(y*240+x)*4+c]=235}}}
+check(RimSeal.apply(faintRimGlyph,width:240,height:320).pixels==faintRimGlyph,"local contrast preserves faint glyph-shaped content in the rim")
+
+print("All \(passed) checks passed, including final edge protection")

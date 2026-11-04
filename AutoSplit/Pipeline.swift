@@ -109,6 +109,15 @@ extension Imaging {
         // narrow rim AFTER a verified photo crop, never to the full PDF canvas.
         let brushed=try cleanRim(original,automatic:false,strokes:leaf.cleanupStrokes ?? [])
         var cropped=try perspective(brushed,quad:quad)
+        // Auto-detected photo corners can land on the physical contact edge.
+        // Remove a six-pixel guard at typical scan resolution before filtering.
+        // Always render from the saved original: this never accumulates on edits.
+        let photo=leaf.sourceKind=="camera" || leaf.sourceKind=="image"
+        if verified && photo && leaf.manualCrop != true && leaf.edgeFill,let cg=cropped.cgImage {
+            let guardPixels=max(2,min(8,Int(Double(min(cg.width,cg.height))*0.004)))
+            let bounds=CGRect(x:guardPixels,y:guardPixels,width:cg.width-guardPixels*2,height:cg.height-guardPixels*2)
+            if let inner=cg.cropping(to:bounds) {cropped=UIImage(cgImage:inner)}
+        }
         // Find wood/contact shadows in original color, before lighting can bleach the evidence.
         let repaired=try repairRim(cropped,automatic:leaf.edgeFill && verified,overlap:leaf.edgeOverlap ?? 0.06,reach:leaf.edgeReach ?? 0.08)
         cropped=repaired.image
@@ -121,8 +130,8 @@ extension Imaging {
         // Quick review does not run four OCR rotations. It does show the actual
         // detected crop before the thumbnail becomes available.
         let repaired=try preparedImage(leaf,original:original,quad:decision.quad,verified:decision.verified)
-        let preview=try finish(repaired.image,mode:decision.verified ? leaf.finish : .natural,edgeFill:false,sharpness:leaf.sharpness ?? ((leaf.finish == .white || leaf.finish == .clean) ? 0.85:0))
-        return CapturePreview(image:preview,quad:decision.quad,verified:decision.verified,edgeRepairCount:repaired.changed)
+        let final=try finishPage(repaired.image,leaf:leaf,verified:decision.verified)
+        return CapturePreview(image:final.image,quad:decision.quad,verified:decision.verified,edgeRepairCount:repaired.changed+final.changed)
     }
     static func perspective(_ image: UIImage, quad: Quad?) throws -> UIImage {
         guard let quad,quad != .full else { return image }
@@ -133,6 +142,12 @@ extension Imaging {
         for (key,index) in [("inputTopLeft",0),("inputTopRight",1),("inputBottomRight",2),("inputBottomLeft",3)] { filter.setValue(v(index),forKey:key) }
         guard let out=filter.outputImage,let cg=CIContext().createCGImage(out,from:out.extent) else { throw ScanError.message("Не вдалося виправити перспективу") }
         return UIImage(cgImage:cg)
+    }
+    static func finishPage(_ image:UIImage,leaf:Leaf,verified:Bool) throws -> EdgeRepairResult {
+        let amount=leaf.sharpness ?? ((leaf.finish == .white || leaf.finish == .clean) ? 0.85:0)
+        let filtered=try finish(image,mode:verified ? leaf.finish:.natural,edgeFill:false,sharpness:amount)
+        // Last pixel operation: no later sharpening can restore a removed hairline.
+        return leaf.edgeFill && verified ? try sealRim(filtered):EdgeRepairResult(image:filtered,changed:0)
     }
     static func finish(_ image:UIImage, mode:Finish, edgeFill:Bool,sharpness:Double=0.85) throws -> UIImage {
         var image=image
@@ -196,7 +211,8 @@ extension Imaging {
         }
         let decision=RasterAxis.choose(scores:scores,axis:axis,manual:leaf.manualTurns)
         let turns=decision.turns
-        let image=try finish(rotate(cropped,turns:turns),mode:crop.verified ? leaf.finish : .natural,edgeFill:false,sharpness:leaf.sharpness ?? ((leaf.finish == .white || leaf.finish == .clean) ? 0.85:0))
+        let final=try finishPage(rotate(cropped,turns:turns),leaf:leaf,verified:crop.verified)
+        let image=final.image
         var read=try recognize(image,fast:false,maxPixel:seekName ? 3400:2600)
         // Only retry the naming page. Raw paper can retain faint letters lost by
         // the visual filter; this OCR pass never changes the displayed image.
@@ -208,19 +224,19 @@ extension Imaging {
             }
         }
         var notes:[String] = []
-        if leaf.edgeFill {notes.append(repaired.changed>0 ? "Край оброблено":"Край перевірено — без змін")}
+        if leaf.edgeFill {notes.append(repaired.changed+final.changed>0 ? "Край оброблено":"Край перевірено — без змін")}
         if !crop.verified {notes.append("Межі не знайдено — вкажіть кути або перезніміть ближче")}
         if decision.uncertain && leaf.manualTurns == nil { notes.append("Перевірте напрям тексту") }
         if read.1<0.65 { notes.append("Текст розпізнано невпевнено") }
         if !read.2 { notes.append("Системний OCR без uk-UA: перевірте ПІБ") }
-        return PageResult(image:image,quad:quad,turns:turns,text:read.0,note:notes.joined(separator:" · "),cropVerified:crop.verified,edgeRepairCount:repaired.changed)
+        return PageResult(image:image,quad:quad,turns:turns,text:read.0,note:notes.joined(separator:" · "),cropVerified:crop.verified,edgeRepairCount:repaired.changed+final.changed)
     }
     static func render(_ leaf:Leaf) throws -> UIImage {try renderWithEdgeReport(leaf).image}
     static func renderWithEdgeReport(_ leaf:Leaf) throws -> EdgeRepairResult {
         guard let original=Disk.image(leaf.original) else { throw ScanError.message("Оригінал відсутній") }
         let crop=try cropDecision(leaf,original:original)
         let prepared=try preparedImage(leaf,original:original,quad:crop.quad,verified:crop.verified)
-        let image=try finish(rotate(prepared.image,turns:leaf.turns),mode:crop.verified ? leaf.finish : .natural,edgeFill:false,sharpness:leaf.sharpness ?? ((leaf.finish == .white || leaf.finish == .clean) ? 0.85:0))
-        return EdgeRepairResult(image:image,changed:prepared.changed)
+        let final=try finishPage(rotate(prepared.image,turns:leaf.turns),leaf:leaf,verified:crop.verified)
+        return EdgeRepairResult(image:final.image,changed:prepared.changed+final.changed)
     }
 }
