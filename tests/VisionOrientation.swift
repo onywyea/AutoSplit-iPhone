@@ -41,8 +41,19 @@ enum Imaging {
         NSGraphicsContext.restoreGraphicsState();image.unlockFocus()
         let sample=try Imaging.orientationSample(image)
         var readings=[OrientationReading]()
-        for turn in 0..<4 {readings.append(try Imaging.orientationReading(Imaging.rotate(sample,turns:turn),focusBody:true))}
-        for (i,r) in readings.enumerated() {print("Synthetic Vision turn \(i): bodyLines=\(r.bodyLines), characters=\(r.bodyCharacters), score=\(r.bodyScore), anchors=\(r.bodyAnchors)")}
+        for turn in 0..<4 {
+            let rotated=Imaging.rotate(sample,turns:turn)
+            readings.append(try Imaging.orientationReading(rotated,focusBody:true))
+            let request=VNRecognizeTextRequest();request.recognitionLevel = .accurate;request.usesLanguageCorrection=true
+            request.automaticallyDetectsLanguage=true
+            let supported=try request.supportedRecognitionLanguages();request.recognitionLanguages=["uk-UA","ru-RU","en-US"].filter{supported.contains($0)}
+            try VNImageRequestHandler(cgImage:rotated.cgImage!).perform([request])
+            for line in (request.results ?? []).prefix(3) {
+                let text=line.topCandidates(1).first
+                NSLog("Vision diagnostic turn %d: %@ confidence %.3f dx %.3f dy %.3f",turn,text?.string ?? "",Double(text?.confidence ?? 0),line.topRight.x-line.topLeft.x,line.topRight.y-line.topLeft.y)
+            }
+        }
+        for (i,r) in readings.enumerated() {NSLog("Synthetic Vision turn %d: bodyLines=%d characters=%d score=%.2f anchors=%d",i,r.bodyLines,r.bodyCharacters,r.bodyScore,r.bodyAnchors)}
         for input in 0..<4 {
             let candidates=(0..<4).map {readings[($0+input)%4]}
             let axis=input%2==0 ? TextAxis(horizontal:100,vertical:0,components:100):TextAxis(horizontal:0,vertical:100,components:100)
