@@ -1224,3 +1224,94 @@ enum DocumentInk {
         return result
     }
 }
+
+// Stable values, shared by the library UI and persistence transaction.
+struct ScanMoveItem:Identifiable,Equatable {
+    let id:UUID
+    let title:String
+    var folderID:UUID?
+}
+struct ScanMoveRequest:Identifiable {
+    let id=UUID()
+    let items:[ScanMoveItem]
+    var ids:Set<UUID> {Set(items.map(\.id))}
+}
+enum ScanMoveFailure:LocalizedError {
+    case empty,missing,changed,folder,duplicate
+    var errorDescription:String? {
+        switch self {
+        case .empty:return "Не вибрано жодного скану."
+        case .missing:return "Деякі вибрані скани вже недоступні. Оновіть вибір."
+        case .changed:return "Папка вибраного скану змінилася. Оновіть вибір перед перенесенням."
+        case .folder:return "Папка призначення вже недоступна. Виберіть іншу папку."
+        case .duplicate:return "Список містить повторні ідентифікатори. Перенесення скасовано."
+        }
+    }
+}
+enum ScanMoves {
+    static func plan(_ current:[ScanMoveItem],request:ScanMoveRequest,to folderID:UUID?,folders:Set<UUID>) throws -> [ScanMoveItem] {
+        guard !request.items.isEmpty else {throw ScanMoveFailure.empty}
+        guard request.ids.count==request.items.count,Set(current.map(\.id)).count==current.count else {throw ScanMoveFailure.duplicate}
+        guard folderID==nil || folders.contains(folderID!) else {throw ScanMoveFailure.folder}
+        let lookup=Dictionary(uniqueKeysWithValues:current.map{($0.id,$0)})
+        for item in request.items {
+            guard let existing=lookup[item.id] else {throw ScanMoveFailure.missing}
+            guard existing.folderID==item.folderID else {throw ScanMoveFailure.changed}
+        }
+        return current.map {item in
+            guard request.ids.contains(item.id) else {return item}
+            var moved=item;moved.folderID=folderID;return moved
+        }
+    }
+}
+enum FolderColor:String,CaseIterable,Codable {
+    case coral,amber,green,teal,blue,violet,pink
+    static func next(used:[String])->FolderColor {
+        let counts=Dictionary(grouping:used,by:{$0}).mapValues(\.count)
+        return allCases.min {a,b in
+            let ca=counts[a.rawValue,default:0],cb=counts[b.rawValue,default:0]
+            return ca==cb ? allCases.firstIndex(of:a)!<allCases.firstIndex(of:b)!:ca<cb
+        } ?? .blue
+    }
+}
+struct NameSuffixParts:Equatable {
+    var base:String
+    var relation:String
+    var childName:String
+    static let relations=["мати","батько","дружина","чоловік","дочка","донька","син","сестра","брат"]
+    var isChild:Bool {Self.isChild(relation)}
+    static func isChild(_ relation:String)->Bool {["дочка","донька","син"].contains(relation)}
+    static func parse(_ suffix:String)->NameSuffixParts {
+        let parts=ScanNaming.suffix(suffix).split(separator:"_").map(String.init)
+        guard let i=parts.firstIndex(where:{relations.contains($0)}) else {return NameSuffixParts(base:parts.joined(separator:"_"),relation:"",childName:"")}
+        return NameSuffixParts(base:parts[..<i].joined(separator:"_"),relation:parts[i],childName:parts.dropFirst(i+1).joined(separator:" "))
+    }
+    var value:String {
+        let base=ScanNaming.suffix(base)
+        guard !relation.isEmpty else {return base}
+        let root=Self.parse(base).base
+        let parts=[root,relation,childName]
+        return ScanNaming.suffix(parts.filter{!$0.isEmpty}.joined(separator:"_"))
+    }
+}
+struct ScanNameHistoryItem {
+    let id:UUID
+    let created:Date
+    let title:String
+    let subjectName:String
+    let hasPages:Bool
+}
+struct ScanNameSuggestion {let name:String;let sourceTitle:String}
+enum ScanNameHistory {
+    static func isPerson(_ text:String)->Bool {
+        if NameFinder.plausiblePerson(text) {return true}
+        return text.range(of:"^[\\p{L}’'ʼ-]+_[\\p{Lu}]{1,3}$",options:.regularExpression) != nil
+    }
+    static func previous(_ entries:[ScanNameHistoryItem],before:Date,excluding:UUID)->ScanNameSuggestion? {
+        entries.filter{$0.id != excluding && $0.created<=before && $0.hasPages && isPerson($0.subjectName)}
+            .sorted{$0.created==$1.created ? $0.id.uuidString<$1.id.uuidString:$0.created>$1.created}
+            .first.map{ScanNameSuggestion(name:$0.subjectName,sourceTitle:$0.title)}
+    }
+}
+
+struct ScanFolder:Codable,Identifiable {var id=UUID();var name:String;var colorID:String?=nil}

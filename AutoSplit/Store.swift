@@ -13,6 +13,11 @@ final class ScannerStore:ObservableObject {
     @Published var exportSummary=""
     private var stopped=false
     init() { do { documents=try Disk.load();folders=try Disk.loadFolders()
+        var recolored=false
+        for i in folders.indices where FolderColor(rawValue:folders[i].colorID ?? "")==nil {
+            folders[i].colorID=FolderColor.next(used:folders.compactMap(\.colorID)).rawValue;recolored=true
+        }
+        if recolored {try Disk.saveFolders(folders)}
         for i in documents.indices where NameFinder.plausiblePerson(documents[i].title) {
             documents[i].personName=documents[i].title
             documents[i].title=ScanNaming.compose(documents[i].title,suffix:documents[i].nameSuffix ?? "")
@@ -20,7 +25,30 @@ final class ScannerStore:ObservableObject {
     func document(_ id:UUID)->ScanDocument? { documents.first{$0.id==id} }
     func index(_ id:UUID)->Int? { documents.firstIndex{$0.id==id} }
     func save() { do { try Disk.save(documents) } catch { self.error=error.localizedDescription } }
-    func newDocument(folderID:UUID?=nil)->UUID { var doc=ScanDocument();doc.folderID=folderID; documents.insert(doc,at:0); save(); return doc.id }
+    func newDocument(folderID:UUID?=nil)->UUID {
+        var doc=ScanDocument();doc.folderID=folderID
+        if let previous=previousSubject(before:doc.created,excluding:doc.id) {
+            doc.previousPersonName=previous.name;doc.previousNameSourceTitle=previous.sourceTitle
+        }
+        documents.insert(doc,at:0);save();return doc.id
+    }
+    private func previousSubject(before:Date,excluding:UUID)->ScanNameSuggestion? {
+        let entries=documents.map {doc -> ScanNameHistoryItem in
+            var base=doc.title
+            let suffix=ScanNaming.suffix(doc.nameSuffix ?? "")
+            if !suffix.isEmpty,base.hasSuffix("_"+suffix) {base=String(base.dropLast(suffix.count+1))}
+            return ScanNameHistoryItem(id:doc.id,created:doc.created,title:doc.title,subjectName:doc.personName ?? base,hasPages:!doc.pages.isEmpty)
+        }
+        return ScanNameHistory.previous(entries,before:before,excluding:excluding)
+    }
+    func nameSuggestion(for id:UUID)->ScanNameSuggestion? {
+        guard let doc=document(id) else {return nil}
+        if let name=doc.previousPersonName,ScanNameHistory.isPerson(name) {
+            return ScanNameSuggestion(name:name,sourceTitle:doc.previousNameSourceTitle ?? "Попередній скан")
+        }
+        return previousSubject(before:doc.created,excluding:id)
+    }
+    func folderCount(_ id:UUID?)->Int {documents.filter{$0.folderID==id}.count}
     func cancel() { stopped=true; status="Зупинка після поточної сторінки…" }
     func addImage(_ image:UIImage,to id:UUID,sourceKind:String="image",prepare:Bool=false,pdfFile:String?=nil,pdfPage:Int?=nil,encodedOriginal:Data?=nil) async {
         guard index(id) != nil else { return }
@@ -254,10 +282,11 @@ final class ScannerStore:ObservableObject {
         documents[i].title=ScanNaming.compose(title,suffix:suffix)
         documents[i].nameConfirmed=true;save()
     }
-    @discardableResult func createFolder(_ name:String)->UUID? {
+    @discardableResult func createFolder(_ name:String,colorID:String?=nil)->UUID? {
         let name=name.trimmingCharacters(in:.whitespacesAndNewlines)
         guard !busy,savingPhotos==0,!name.isEmpty else{return nil}
-        let folder=ScanFolder(name:name)
+        let color=FolderColor(rawValue:colorID ?? "") ?? FolderColor.next(used:folders.compactMap(\.colorID))
+        let folder=ScanFolder(name:name,colorID:color.rawValue)
         do {try Disk.saveFolders(folders+[folder]);folders.append(folder);return folder.id}
         catch {self.error=error.localizedDescription;return nil}
     }
@@ -267,18 +296,40 @@ final class ScannerStore:ObservableObject {
         var updated=folders;updated[i].name=name
         do {try Disk.saveFolders(updated);folders=updated}catch{self.error=error.localizedDescription}
     }
-    func moveDocuments(_ ids:Set<UUID>,to folderID:UUID?) {
-        guard !busy,savingPhotos==0,folderID==nil || folders.contains(where:{$0.id==folderID}) else{return}
-        var updated=documents
-        for i in updated.indices where ids.contains(updated[i].id) {updated[i].folderID=folderID}
-        do {try Disk.save(updated);documents=updated}catch{self.error=error.localizedDescription}
+    func setFolderColor(_ id:UUID,_ color:FolderColor) {
+        guard !busy,savingPhotos==0,let i=folders.firstIndex(where:{$0.id==id}) else {return}
+        var updated=folders;updated[i].colorID=color.rawValue
+        do {try Disk.saveFolders(updated);folders=updated}catch{self.error=error.localizedDescription}
+    }
+    func prepareMove(_ ids:Set<UUID>)->ScanMoveRequest? {
+        guard !busy,savingPhotos==0 else {error="Дочекайтеся завершення обробки сторінок.";return nil}
+        let items=documents.filter{ids.contains($0.id)}.map{ScanMoveItem(id:$0.id,title:$0.title,folderID:$0.folderID)}
+        guard !items.isEmpty,items.count==ids.count else {error=ScanMoveFailure.missing.localizedDescription;return nil}
+        error=nil;return ScanMoveRequest(items:items)
+    }
+    @discardableResult func moveDocuments(_ request:ScanMoveRequest,to folderID:UUID?)->Bool {
+        guard !busy,savingPhotos==0 else {error="Дочекайтеся завершення обробки сторінок.";return false}
+        do {
+            let current=documents.map{ScanMoveItem(id:$0.id,title:$0.title,folderID:$0.folderID)}
+            let plan=try ScanMoves.plan(current,request:request,to:folderID,folders:Set(folders.map(\.id)))
+            let targets=Dictionary(uniqueKeysWithValues:plan.map{($0.id,$0)})
+            var updated=documents
+            for i in updated.indices where request.ids.contains(updated[i].id) {updated[i].folderID=targets[updated[i].id]?.folderID}
+            let changed=zip(documents,updated).filter{pair in pair.0.folderID != pair.1.folderID}.count
+            try Disk.save(updated)
+            documents=updated;error=nil;status=changed>0 ? "Переміщено сканів: \(changed)":"Вибрані скани вже в цій папці"
+            return true
+        } catch {self.error=error.localizedDescription;return false}
     }
     func deleteFolder(_ id:UUID) {
-        guard !busy,savingPhotos==0 else{return}
-        moveDocuments(Set(documents.filter{$0.folderID==id}.map(\.id)),to:nil)
-        guard !documents.contains(where:{$0.folderID==id}) else{return}
-        let updated=folders.filter{$0.id != id}
-        do {try Disk.saveFolders(updated);folders=updated}catch{self.error=error.localizedDescription}
+        guard !busy,savingPhotos==0 else {return}
+        var updatedDocuments=documents
+        for i in updatedDocuments.indices where updatedDocuments[i].folderID==id {updatedDocuments[i].folderID=nil}
+        let updatedFolders=folders.filter{$0.id != id}
+        do {
+            try Disk.save(updatedDocuments);documents=updatedDocuments
+            try Disk.saveFolders(updatedFolders);folders=updatedFolders
+        }catch{self.error=error.localizedDescription}
     }
     @discardableResult
     func saveRenderedPage(_ id:UUID,leaf:Leaf,image:UIImage,changed:Int) async -> Bool {

@@ -1,4 +1,29 @@
 import SwiftUI
+extension FolderColor {
+    var color:Color {
+        switch self {
+        case .coral:return .orange
+        case .amber:return .yellow
+        case .green:return .green
+        case .teal:return .teal
+        case .blue:return .blue
+        case .violet:return .purple
+        case .pink:return .pink
+        }
+    }
+    var title:String {
+        switch self {
+        case .coral:return "Кораловий"
+        case .amber:return "Золотий"
+        case .green:return "Зелений"
+        case .teal:return "Бірюзовий"
+        case .blue:return "Синій"
+        case .violet:return "Фіолетовий"
+        case .pink:return "Рожевий"
+        }
+    }
+}
+extension ScanFolder {var tint:FolderColor {FolderColor(rawValue:colorID ?? "") ?? .blue}}
 struct FolderShelf:View {
     @EnvironmentObject var store:ScannerStore
     @Binding var selection:String
@@ -6,36 +31,92 @@ struct FolderShelf:View {
     var body:some View {
         ScrollView(.horizontal,showsIndicators:false) {
             HStack(spacing:8) {
-                chip("Усі",id:"all");chip("Без папки",id:"unfiled")
-                ForEach(store.folders) {folder in chip(folder.name,id:folder.id.uuidString)}
-                Button(action:manage){Image(systemName:"folder.badge.gearshape").padding(12)}.accessibilityLabel("Керувати папками")
+                chip("Усі",id:"all",count:store.documents.count,tint:.accent,icon:"square.stack")
+                chip("Без папки",id:"unfiled",count:store.folderCount(nil),tint:.secondary,icon:"tray")
+                ForEach(store.folders) {folder in
+                    chip(folder.name,id:folder.id.uuidString,count:store.folderCount(folder.id),tint:folder.tint.color,icon:"folder.fill")
+                }
+                Button(action:manage){Image(systemName:"folder.badge.gearshape").padding(12)}.accessibilityLabel("Керувати папками та кольорами")
             }
         }
     }
-    private func chip(_ name:String,id:String)->some View {
-        Button {selection=id} label:{Text(name).font(.subheadline.weight(.medium)).padding(.horizontal,14).padding(.vertical,10).background(selection==id ? Color.accent.opacity(0.22):Color.secondary.opacity(0.10),in:Capsule())}.buttonStyle(.plain)
+    private func chip(_ name:String,id:String,count:Int,tint:Color,icon:String)->some View {
+        Button {selection=id} label:{
+            HStack(spacing:7) {
+                Image(systemName:icon).foregroundStyle(tint)
+                Text(name).lineLimit(1)
+                Text("\(count)").font(.caption.bold().monospacedDigit()).padding(.horizontal,6).padding(.vertical,2).background(tint.opacity(0.17),in:Capsule())
+            }.font(.subheadline.weight(.medium)).padding(.horizontal,12).padding(.vertical,10)
+                .background(tint.opacity(selection==id ? 0.23:0.07),in:Capsule())
+                .overlay(Capsule().stroke(tint.opacity(selection==id ? 0.8:0.22),lineWidth:1))
+        }.buttonStyle(.plain).accessibilityLabel("\(name), сканів: \(count)").accessibilityAddTraits(selection==id ? .isSelected:[])
     }
 }
 struct FolderPicker:View {
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
-    let ids:Set<UUID>
+    let request:ScanMoveRequest
+    var onMoved:()->Void
     @State private var name=""
+    @State private var destination:String?
     var body:some View {
         NavigationStack {
             Form {
-                Section("Перемістити скани: \(ids.count)") {
-                    Button("Без папки"){move(nil)}
-                    ForEach(store.folders) {folder in Button(folder.name){move(folder.id)}}
+                Section {
+                    DisclosureGroup("Вибрані скани: \(request.items.count)") {
+                        ForEach(request.items) {item in
+                            VStack(alignment:.leading,spacing:4) {
+                                Text(item.title).font(.subheadline)
+                                Text(sourceName(item.folderID)).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Text("Перемістяться лише скани з цього списку.").font(.caption).foregroundStyle(.secondary)
+                }
+                Section("Папка призначення") {
+                    destinationRow("Без папки",key:"unfiled",count:store.folderCount(nil),color:.secondary)
+                    ForEach(store.folders) {folder in
+                        destinationRow(folder.name,key:folder.id.uuidString,count:store.folderCount(folder.id),color:folder.tint.color)
+                    }
                 }
                 Section("Нова папка") {
                     TextField("Назва папки",text:$name)
-                    Button("Створити та перемістити") {if let id=store.createFolder(name){move(id)}}.disabled(name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
+                    Button("Створити папку") {
+                        if let id=store.createFolder(name) {destination=id.uuidString;name=""}
+                    }.disabled(name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
                 }
-            }.navigationTitle("Папки").toolbar{ToolbarItem(placement:.confirmationAction){Button("Готово"){dismiss()}}}
+            }.disabled(store.busy || store.savingPhotos>0)
+                .navigationTitle("Перемістити скани").navigationBarTitleDisplayMode(.inline)
+                .safeAreaInset(edge:.bottom) {
+                    Button("Перемістити · \(request.items.count)",action:move)
+                        .frame(maxWidth:.infinity,minHeight:44).scanPrimaryButton().padding()
+                        .disabled(destination==nil || store.busy || store.savingPhotos>0)
+                        .background(.ultraThinMaterial)
+                }
+                .toolbar {ToolbarItem(placement:.cancellationAction){Button("Скасувати"){dismiss()}}}
+                .alert("Не вдалося перемістити",isPresented:Binding(get:{store.error != nil},set:{if !$0 {store.error=nil}})) {
+                    Button("Зрозуміло"){store.error=nil}
+                } message:{Text(store.error ?? "")}
         }
     }
-    private func move(_ id:UUID?) {store.moveDocuments(ids,to:id);dismiss()}
+    private func sourceName(_ id:UUID?)->String {store.folders.first{$0.id==id}?.name ?? "Без папки"}
+    private func destinationRow(_ title:String,key:String,count:Int,color:Color)->some View {
+        Button {destination=key} label:{
+            HStack {
+                Image(systemName:key=="unfiled" ? "tray":"folder.fill").foregroundStyle(color)
+                Text(title).foregroundStyle(.primary)
+                Spacer();Text("\(count)").foregroundStyle(.secondary).monospacedDigit()
+                if destination==key {Image(systemName:"checkmark.circle.fill").foregroundStyle(color)}
+            }
+        }
+    }
+    private func move() {
+        guard let destination else {return}
+        let id:UUID?
+        if destination=="unfiled" {id=nil}
+        else {guard let parsed=UUID(uuidString:destination) else {return};id=parsed}
+        if store.moveDocuments(request,to:id) {onMoved();dismiss()}
+    }
 }
 struct FolderManager:View {
     @EnvironmentObject var store:ScannerStore
@@ -51,15 +132,29 @@ struct FolderManager:View {
                     TextField("Назва папки",text:$name)
                     Button("Створити") {if store.createFolder(name) != nil {name=""}}.disabled(name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty)
                 }
-                Section("Ваші папки") {
+                Section {
                     ForEach(store.folders) {folder in
                         HStack {
-                            Label(folder.name,systemImage:"folder")
+                            Image(systemName:"folder.fill").foregroundStyle(folder.tint.color)
+                            VStack(alignment:.leading,spacing:3) {
+                                Text(folder.name)
+                                Text("Сканів: \(store.folderCount(folder.id))").font(.caption).foregroundStyle(.secondary)
+                            }
                             Spacer()
-                            Menu {Button("Перейменувати"){editName=folder.name;editing=folder};Button("Видалити папку",role:.destructive){deleting=folder}} label:{Image(systemName:"ellipsis.circle")}
+                            Menu {
+                                Menu("Колір папки") {
+                                    ForEach(FolderColor.allCases,id:\.self) {color in
+                                        Button {store.setFolderColor(folder.id,color)} label:{
+                                            Label(color.title,systemImage:folder.tint==color ? "checkmark.circle.fill":"circle.fill").foregroundStyle(color.color)
+                                        }
+                                    }
+                                }
+                                Button("Перейменувати"){editName=folder.name;editing=folder}
+                                Button("Видалити папку",role:.destructive){deleting=folder}
+                            } label:{Image(systemName:"ellipsis.circle")}
                         }
                     }
-                }
+                } header:{Text("Ваші папки")} footer:{Text("Колір можна змінити через меню папки. Видалення папки не видаляє скани.")}
             }.disabled(store.busy || store.savingPhotos>0)
                 .navigationTitle("Папки").toolbar{ToolbarItem(placement:.confirmationAction){Button("Готово"){dismiss()}}}
                 .alert("Перейменувати папку",isPresented:Binding(get:{editing != nil},set:{if !$0 {editing=nil}})) {

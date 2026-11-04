@@ -576,3 +576,62 @@ check(Int(inkResult[14])-Int(inkResult[12])>50,"blue stamp gains saturation")
 check(stride(from:3,to:inkSample.count,by:4).allSatisfy{inkResult[$0]==inkSample[$0]},"ink contrast preserves alpha")
 check(DocumentInk.enhance([1,2,3],amount:1)==[1,2,3],"invalid ink buffer is rejected")
 print("All \(passed) scanner checks including compact body orientation and color contrast passed")
+
+let folderA=UUID(),folderB=UUID(),folderC=UUID()
+let moveItems=(0..<8).map{i in ScanMoveItem(id:UUID(),title:"Scan \(i)",folderID:i<3 ? folderA:(i<6 ? folderB:nil))}
+var changingSelection:Set<UUID>=[moveItems[1].id,moveItems[4].id]
+let frozenMove=ScanMoveRequest(items:moveItems.filter{changingSelection.contains($0.id)})
+changingSelection=Set(moveItems.map(\.id))
+check(frozenMove.ids==Set([moveItems[1].id,moveItems[4].id]),"move request freezes exact IDs before subsequent selection changes")
+let movedItems=try ScanMoves.plan(moveItems,request:frozenMove,to:folderC,folders:[folderA,folderB,folderC])
+check(zip(moveItems,movedItems).filter{$0.0.folderID != $0.1.folderID}.count==2,"moving two scans changes exactly two folders")
+check(movedItems[1].folderID==folderC && movedItems[4].folderID==folderC,"selected scans from different folders reach destination")
+check([0,2,3,5,6,7].allSatisfy{movedItems[$0]==moveItems[$0]},"unselected scans in every source folder remain exact")
+check(movedItems.map(\.id)==moveItems.map(\.id) && movedItems.map(\.title)==moveItems.map(\.title),"move preserves scan identity order and title")
+var rejectedStaleMove=false
+do {_ = try ScanMoves.plan(movedItems,request:frozenMove,to:folderA,folders:[folderA,folderB,folderC])}catch ScanMoveFailure.changed{rejectedStaleMove=true}
+check(rejectedStaleMove,"stale source assignments reject repeated move instead of moving unrelated scans")
+var rejectedMissingMove=false
+do {_ = try ScanMoves.plan(Array(moveItems.dropFirst(2)),request:frozenMove,to:folderC,folders:[folderC])}catch ScanMoveFailure.missing{rejectedMissingMove=true}
+check(rejectedMissingMove,"deleted selected scan cancels move atomically")
+var rejectedEmptyMove=false
+do {_ = try ScanMoves.plan(moveItems,request:ScanMoveRequest(items:[]),to:folderC,folders:[folderC])}catch ScanMoveFailure.empty{rejectedEmptyMove=true}
+check(rejectedEmptyMove,"empty selection never means move all scans")
+var rejectedFolderMove=false
+do {_ = try ScanMoves.plan(moveItems,request:frozenMove,to:folderC,folders:[folderA,folderB])}catch ScanMoveFailure.folder{rejectedFolderMove=true}
+check(rejectedFolderMove,"missing destination cannot fall back to unfiled")
+let unfiledMove=try ScanMoves.plan(moveItems,request:frozenMove,to:nil,folders:[])
+check(unfiledMove[1].folderID==nil && unfiledMove[4].folderID==nil && unfiledMove[0].folderID==folderA,"unfiled destination affects selected IDs only")
+let secondRequest=ScanMoveRequest(items:[movedItems[0]])
+let secondMove=try ScanMoves.plan(movedItems,request:secondRequest,to:folderB,folders:[folderA,folderB,folderC])
+check(secondMove[1].folderID==folderC && secondMove[4].folderID==folderC && secondMove[0].folderID==folderB,"next move cannot reuse IDs from previous operation")
+var rejectedDuplicateMove=false
+do {_ = try ScanMoves.plan(moveItems,request:ScanMoveRequest(items:[moveItems[0],moveItems[0]]),to:folderB,folders:[folderB])}catch ScanMoveFailure.duplicate{rejectedDuplicateMove=true}
+check(rejectedDuplicateMove,"duplicate request IDs are rejected")
+let legacyFolderJSON="{\"id\":\"\(folderA.uuidString)\",\"name\":\"Existing folder\"}"
+let legacyFolder=try JSONDecoder().decode(ScanFolder.self,from:Data(legacyFolderJSON.utf8))
+check(legacyFolder.id==folderA && legacyFolder.colorID==nil,"folders from previous versions decode without color metadata")
+let coloredFolder=ScanFolder(id:folderA,name:"Existing folder",colorID:FolderColor.violet.rawValue)
+let savedFolder=try JSONDecoder().decode(ScanFolder.self,from:JSONEncoder().encode(coloredFolder))
+check(savedFolder.id==folderA && savedFolder.name==coloredFolder.name && savedFolder.colorID=="violet","folder color persistence preserves folder identity")
+check(FolderColor.next(used:[]) == .coral && FolderColor.next(used:["coral"]) == .amber,"new folders automatically get different colors")
+let oldChildSuffix=NameSuffixParts.parse("_ПКМУ168_дочка_Аліна")
+check(oldChildSuffix.base=="ПКМУ168" && oldChildSuffix.relation=="дочка" && oldChildSuffix.childName=="Аліна","existing child suffix populates separate child field")
+check(oldChildSuffix.value=="ПКМУ168_дочка_Аліна","child suffix round trip does not duplicate relationship")
+check(NameSuffixParts(base:"ПКМУ975",relation:"син",childName:"Андрій").value=="ПКМУ975_син_Андрій","child first name is joined with underscores")
+check(NameSuffixParts(base:"",relation:"дочка",childName:"Анна Марія").value=="дочка_Анна_Марія","compound child names normalize without spaces")
+check(NameSuffixParts.parse("ПКМУ168_мати").childName.isEmpty,"parent relationship does not invent a child name")
+check(NameSuffixParts(base:"ПКМУ168_дочка_Аліна",relation:"син",childName:"Андрій").value=="ПКМУ168_син_Андрій","changing relationship replaces old relationship rather than appending")
+let historyCurrent=UUID(),historyEarlier=UUID(),historyLater=UUID(),historyEmpty=UUID()
+let historyEntries=[
+    ScanNameHistoryItem(id:historyEarlier,created:Date(timeIntervalSince1970:10),title:"Іваненко_ІІ_ПКМУ168_мати",subjectName:"Іваненко Іван Іванович",hasPages:true),
+    ScanNameHistoryItem(id:historyLater,created:Date(timeIntervalSince1970:30),title:"Коваленко_ОО",subjectName:"Коваленко Олег Олегович",hasPages:true),
+    ScanNameHistoryItem(id:historyEmpty,created:Date(timeIntervalSince1970:19),title:"Новий скан",subjectName:"Новий скан",hasPages:false),
+    ScanNameHistoryItem(id:historyCurrent,created:Date(timeIntervalSince1970:20),title:"Поточний пакет",subjectName:"Петренко Петро Петрович",hasPages:true)
+]
+let previousSubject=ScanNameHistory.previous(historyEntries,before:Date(timeIntervalSince1970:20),excluding:historyCurrent)
+check(previousSubject?.name=="Іваненко Іван Іванович","next scan suggests preceding service member rather than current relative or future scan")
+check(previousSubject?.name.contains("ПКМУ")==false,"previous subject suggestion does not carry suffix relationship or child name")
+check(ScanNameHistory.isPerson("Дяпкін_ДВ") && !ScanNameHistory.isPerson("Новий скан"),"short subject names qualify while generic titles do not")
+check(ScanNameHistory.previous([],before:Date(),excluding:UUID())==nil,"first scan has no invented subject suggestion")
+print("All \(passed) scanner checks including exact folder moves, colors, child names and previous subject suggestions passed")

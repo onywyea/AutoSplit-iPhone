@@ -35,12 +35,13 @@ struct CleanupStroke: Codable, Equatable {
     var points: [Point]
     var radius: Double
 }
-struct ScanFolder:Codable,Identifiable {var id=UUID();var name:String}
 struct ScanDocument: Codable, Identifiable {
     var id = UUID()
     var title = "Новий скан"
     var folderID:UUID? = nil
     var personName:String? = nil
+    var previousPersonName:String? = nil
+    var previousNameSourceTitle:String? = nil
     var nameSuffix:String? = nil
     var created = Date()
     var pages: [Leaf] = []

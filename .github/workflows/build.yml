@@ -67,9 +67,9 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/AutoSplit.app Payload/
-          zip -qr ScanFlow-0.4.13.ipa Payload
+          zip -qr ScanFlow-0.4.14.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ScanFlow-0.4.13-build32
-          path: ScanFlow-0.4.13.ipa
+          name: ScanFlow-0.4.14-build33
+          path: ScanFlow-0.4.14.ipa
           retention-days: 7

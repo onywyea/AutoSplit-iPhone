@@ -19,7 +19,7 @@ struct LibraryView:View {
     @State private var deleting=false
     @State private var renaming:ScanDocument?
     @State private var folder="all"
-    @State private var moving=false
+    @State private var moveRequest:ScanMoveRequest?
     @State private var managingFolders=false
     @State private var importing=false
     @State private var appearancePresented=false
@@ -53,7 +53,7 @@ struct LibraryView:View {
             .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true, onCompletion:importResult)
             .sheet(isPresented:$handingOff) {HandoffView(ids:selected)}
             .sheet(isPresented:$exporting) {PDFExportSheet(ids:selected)}
-            .sheet(isPresented:$moving) {FolderPicker(ids:selected)}
+            .sheet(item:$moveRequest) {request in FolderPicker(request:request,onMoved:{selected=[];selecting=false})}
             .sheet(isPresented:$managingFolders) {FolderManager()}
             .sheet(isPresented:$appearancePresented) {AppearanceSheet()}
             .sheet(item:$renaming) {document in NameSheet(documentID:document.id)}
@@ -69,6 +69,7 @@ struct LibraryView:View {
             .safeAreaInset(edge:.bottom) {bottomBar}
             .navigationDestination(for:UUID.self) {id in DocumentView(documentID:id,startCamera:newCapture==id)}
             .onChange(of:folder) {_,_ in selected=[]}
+            .onChange(of:search) {_,_ in selected=[]}
             .onChange(of:store.folders.map(\.id)) {_,ids in if let id=currentFolder,!ids.contains(id) {folder="all"}}
             .onChange(of:path) {previous,ids in trackPath(previous,ids)}
             .onChange(of:store.documents.map(\.id)) {_,ids in selected.formIntersection(Set(ids))}
@@ -107,7 +108,7 @@ struct LibraryView:View {
         .disabled(store.busy || store.savingPhotos>0)
     }
     @ViewBuilder private func documentMenu(_ document:ScanDocument)->some View {
-        Button {selected=[document.id];moving=true} label:{Label("Перемістити в папку",systemImage:"folder")}
+        Button {beginMove([document.id])} label:{Label("Перемістити в папку",systemImage:"folder")}
         Button {renaming=document} label:{Label("Перейменувати",systemImage:"pencil")}
         Button {selected=[document.id];exporting=true} label:{Label("Експорт / стиснення PDF",systemImage:"square.and.arrow.up")}
         Button {selected=[document.id];handingOff=true} label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
@@ -123,7 +124,7 @@ struct LibraryView:View {
         }
     }
     private var errorPresented:Binding<Bool> {
-        Binding(get:{store.error != nil && !exporting},set:{if !$0 {store.error=nil}})
+        Binding(get:{store.error != nil && !exporting && moveRequest==nil},set:{if !$0 {store.error=nil}})
     }
     private func openDocument(_ id:UUID) {
         if selecting {toggle(id)}else{path.append(id)}
@@ -141,6 +142,8 @@ struct LibraryView:View {
         case .failure(let error):store.error=error.localizedDescription
         }
     }
+    private func beginMove(_ ids:Set<UUID>) {moveRequest=store.prepareMove(ids)}
+    private var visibleSelection:Set<UUID> {selected.intersection(Set(filtered.map(\.id)))}
     private func toggle(_ id:UUID) {if selected.contains(id){selected.remove(id)}else{selected.insert(id)}}
     private var bottomBar:some View {
         ScanControls {
@@ -163,12 +166,12 @@ struct LibraryView:View {
         HStack(spacing:12) {
             Button(role:.destructive) {deleting=true} label:{Label("Видалити",systemImage:"trash").foregroundStyle(.red)}.scanSecondaryButton()
             Spacer(minLength:0)
+            Button {beginMove(visibleSelection)} label:{Label("У папку (\(visibleSelection.count))",systemImage:"folder")}.scanSecondaryButton()
             Menu {
-                Button {moving=true} label:{Label("Перемістити в папку",systemImage:"folder")}
                 Button {exporting=true} label:{Label("Експорт / стиснення PDF",systemImage:"doc.zipper")}
                 Button {handingOff=true} label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
             } label:{Label("Дії",systemImage:"ellipsis.circle").font(.subheadline.weight(.semibold))}.scanSecondaryButton()
-        }.disabled(selected.isEmpty || store.busy)
+        }.disabled(visibleSelection.isEmpty || store.busy || store.savingPhotos>0)
     }
 
 }
