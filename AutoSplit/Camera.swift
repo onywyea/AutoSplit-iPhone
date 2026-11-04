@@ -431,7 +431,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             let signature=frameSignature(buffer)
             let content=pageFingerprint(input,quad:candidate)
             let focusSample=Date()
-            processingLock.lock();let device=camera;let wantsSeries=seriesFocus;let pendingFocus=needsDocumentFocus;processingLock.unlock()
+            processingLock.lock();let device=camera;let wantsSeries=seriesFocus;let pendingFocus=needsDocumentFocus && wantsSeries;processingLock.unlock()
             let series=wantsSeries && device?.isFocusModeSupported(.locked)==true
             let adjusting=device?.isAdjustingFocus ?? true
             let position=device?.lensPosition ?? 0
