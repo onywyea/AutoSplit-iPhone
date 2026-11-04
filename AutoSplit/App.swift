@@ -167,7 +167,7 @@ struct LibraryView:View {
                 Button {moving=true} label:{Label("Перемістити в папку",systemImage:"folder")}
                 Button {exporting=true} label:{Label("Експорт / стиснення PDF",systemImage:"doc.zipper")}
                 Button {handingOff=true} label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
-            } label:{Label("Експорт",systemImage:"square.and.arrow.up").font(.subheadline.weight(.semibold))}.scanSecondaryButton()
+            } label:{Label("Дії",systemImage:"ellipsis.circle").font(.subheadline.weight(.semibold))}.scanSecondaryButton()
         }.disabled(selected.isEmpty || store.busy)
     }
 

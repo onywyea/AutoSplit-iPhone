@@ -539,10 +539,10 @@ for row in 0..<8 {for col in 0..<14 {
     let x=12+col*20,y=12+row*35
     for dy in 0..<7 {for dx in 0..<12 where dy==0 || dy==6 || dx==5 {wideLetters[(y+dy)*lineW+x+dx]=0}}
 }}
-let wideAxis=RasterAxis.estimate(wideLetters,width:lineW,height:lineH)
+let wideAxis=RasterFlow.estimate(wideLetters,width:lineW,height:lineH)
 check(wideAxis.reliable && wideAxis.evidence>0,"line spacing overrides wide upright letter shapes")
 var sideLetters=[UInt8](repeating:255,count:lineW*lineH)
 for y in 0..<lineH {for x in 0..<lineW {sideLetters[x*lineH+(lineH-1-y)]=wideLetters[y*lineW+x]}}
-let sideAxis=RasterAxis.estimate(sideLetters,width:lineH,height:lineW)
+let sideAxis=RasterFlow.estimate(sideLetters,width:lineH,height:lineW)
 check(sideAxis.reliable && sideAxis.evidence<0,"sideways line spacing overrides tall rotated letter shapes")
 print("All \(passed) scanner checks passed")
