@@ -33,7 +33,12 @@ final class ScannerStore:ObservableObject {
             var leaf=Leaf(original:name,output:name)
             leaf.sourceKind=sourceKind;leaf.originalPDF=pdfFile;leaf.originalPDFPage=pdfPage
             leaf.finish=documents[i].preferredFinish ?? (sourceKind == "pdf" ? .natural : .white)
-            if sourceKind=="pdf" {leaf.quad = .full;leaf.cropVerified=true;leaf.edgeFill=true}
+            leaf.sharpness=documents[i].preferredSharpness
+            leaf.edgeFill=documents[i].preferredEdgeFill ?? true
+            leaf.edgeOverlap=documents[i].preferredEdgeOverlap;leaf.edgeReach=documents[i].preferredEdgeReach
+            if documents[i].preferredEdgeFill != nil {leaf.edgeChoiceExplicit=true}
+            shareURLs=[];exportSummary=""
+            if sourceKind=="pdf" {leaf.quad = .full;leaf.cropVerified=true}
             if prepare {leaf.note="Визначення меж аркуша…"}
             documents[i].pages.append(leaf);save()
             if prepare {
@@ -42,7 +47,7 @@ final class ScannerStore:ObservableObject {
                 let output=try await Task.detached {try Disk.writeImage(preview.image)}.value
                 if let d=index(id),let p=documents[d].pages.firstIndex(where:{$0.id==snapshot.id}) {
                     documents[d].pages[p].output=output;documents[d].pages[p].quad=preview.quad
-                    documents[d].pages[p].cropVerified=preview.verified;documents[d].pages[p].edgeRepairCount=preview.edgeRepairCount;documents[d].pages[p].edgeRevision=14
+                    documents[d].pages[p].cropVerified=preview.verified;documents[d].pages[p].edgeRepairCount=preview.edgeRepairCount;documents[d].pages[p].edgeRevision=15
                     documents[d].pages[p].note=preview.verified ? "Межі знайдено. Розпізнавання після завершення зйомки":"Межі не знайдено — вкажіть кути або перезніміть ближче"
                     documents[d].pages[p].note += " · "+(preview.edgeRepairCount>0 ? "Край оброблено":"Край перевірено — без змін")
                     save()
@@ -96,12 +101,13 @@ final class ScannerStore:ObservableObject {
             if stopped { break }
             status="Обробка \(position+1)/\(pending.count)"
             do {
-                let result=try await Task.detached(priority:.userInitiated) { try autoreleasepool { try Imaging.process(leaf) } }.value
+                let seekName = !doc.nameConfirmed && leaf.id==doc.pages.first?.id
+                let result=try await Task.detached(priority:.userInitiated) { try autoreleasepool { try Imaging.process(leaf,seekName:seekName) } }.value
                 let output=try await Task.detached { try Disk.writeImage(result.image) }.value
                 guard let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) else { continue }
                 documents[i].pages[p].output=output; documents[i].pages[p].quad=result.quad
                 documents[i].pages[p].turns=result.turns; documents[i].pages[p].text=result.text
-                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified;documents[i].pages[p].edgeRepairCount=result.edgeRepairCount;documents[i].pages[p].edgeRevision=14; documents[i].pages[p].ocrReady=true;documents[i].pages[p].reviewed=nil;shareURLs=[];exportSummary="";save()
+                documents[i].pages[p].note=result.note;documents[i].pages[p].cropVerified=result.cropVerified;documents[i].pages[p].edgeRepairCount=result.edgeRepairCount;documents[i].pages[p].edgeRevision=15; documents[i].pages[p].ocrReady=true;documents[i].pages[p].reviewed=nil;shareURLs=[];exportSummary="";save()
             } catch {
                 if let i=index(id),let p=documents[i].pages.firstIndex(where:{$0.id==leaf.id}) { documents[i].pages[p].note=error.localizedDescription }
             }
@@ -133,7 +139,7 @@ final class ScannerStore:ObservableObject {
     func ensureEdgeProcessing(_ id:UUID,force:Bool=false) async {
         guard !busy,let doc=document(id) else {return}
         let pending=doc.pages.filter {page in
-            let expected=(page.finish == .white || page.finish == .clean) ? 14:13
+            let expected=15
             return force || (page.edgeRevision ?? 0)<expected
         }
         guard !pending.isEmpty else {return}
@@ -150,7 +156,7 @@ final class ScannerStore:ObservableObject {
                 let output=try await Task.detached {try Disk.writeImage(result.image)}.value
                 guard let d=index(id),let p=documents[d].pages.firstIndex(where:{$0.id==leaf.id}) else {continue}
                 documents[d].pages[p].output=output;documents[d].pages[p].edgeFill=leaf.edgeFill
-                documents[d].pages[p].edgeRepairCount=result.changed;documents[d].pages[p].edgeRevision=14;documents[d].pages[p].reviewed=nil;shareURLs=[];exportSummary=""
+                documents[d].pages[p].edgeRepairCount=result.changed;documents[d].pages[p].edgeRevision=15;documents[d].pages[p].reviewed=nil;shareURLs=[];exportSummary=""
                 let previous=original.note.components(separatedBy:" · ").filter {!$0.hasPrefix("Край ") && $0 != "Очистку краю вимкнено"}
                 let edgeNote=leaf.edgeFill ? (result.changed>0 ? "Край оброблено":"Край перевірено — без змін") : "Очистку краю вимкнено"
                 documents[d].pages[p].note=([edgeNote]+previous).joined(separator:" · ")
@@ -165,11 +171,20 @@ final class ScannerStore:ObservableObject {
         let candidates=NameFinder.candidates(text); documents[i].candidates=candidates
         // Never silently choose between a deceased service member and a relative.
         let explicit=candidates.filter(\.explicit)
-        if !documents[i].nameConfirmed,explicit.count==1 { documents[i].title=explicit[0].name }
+        let first=documents[i].pages.first.map {NameFinder.candidates($0.text).filter(\.explicit)} ?? []
+        if !documents[i].nameConfirmed {
+            if first.count==1 {documents[i].title=first[0].name}
+            else if explicit.count==1 {documents[i].title=explicit[0].name}
+            else if candidates.count==1,NameFinder.plausiblePerson(candidates[0].name) {documents[i].title=candidates[0].name}
+        }
         save()
     }
     @discardableResult
     func applyStyle(_ finish:Finish,to id:UUID,pageIDs:Set<UUID>?=nil) async -> Bool {
+        var appearance=Leaf(original:"",output:"");appearance.finish=finish
+        return await applyAppearance(appearance,to:id,pageIDs:pageIDs,includeAdjustments:false)
+    }
+    func applyAppearance(_ appearance:Leaf,to id:UUID,pageIDs:Set<UUID>?=nil,includeAdjustments:Bool=true) async -> Bool {
         guard !busy,savingPhotos==0,let doc=document(id) else {return false}
         busy=true;stopped=false;error=nil;shareURLs=[];exportSummary=""
         defer {busy=false;save()}
@@ -179,7 +194,11 @@ final class ScannerStore:ObservableObject {
         for (position,original) in targets.enumerated() {
             if stopped {break}
             status="Стиль: \(position+1)/\(targets.count)"
-            var leaf=original;leaf.finish=finish;leaf.reviewed=nil
+            var leaf=original;leaf.finish=appearance.finish;leaf.reviewed=nil
+            if includeAdjustments {
+                leaf.sharpness=appearance.sharpness;leaf.edgeFill=appearance.edgeFill
+                leaf.edgeOverlap=appearance.edgeOverlap;leaf.edgeReach=appearance.edgeReach;leaf.edgeChoiceExplicit=true
+            }
             let item=leaf
             do {
                 let result=try await Task.detached(priority:.userInitiated) {
@@ -187,13 +206,20 @@ final class ScannerStore:ObservableObject {
                 }.value
                 let output=try await Task.detached {try Disk.writeImage(result.image)}.value
                 guard let d=index(id),let p=documents[d].pages.firstIndex(where:{$0.id==item.id}) else {continue}
-                leaf.output=output;leaf.edgeRepairCount=result.changed;leaf.edgeRevision=14
+                leaf.output=output;leaf.edgeRepairCount=result.changed;leaf.edgeRevision=15
                 documents[d].pages[p]=leaf
                 completed+=1;save()
             } catch {self.error=error.localizedDescription;return false}
         }
         let success = !stopped && completed==targets.count
-        if success,pageIDs==nil,let d=index(id) {documents[d].preferredFinish=finish}
+        if success,pageIDs==nil,let d=index(id) {
+            documents[d].preferredFinish=appearance.finish
+            if includeAdjustments {
+                documents[d].preferredSharpness=appearance.sharpness
+                documents[d].preferredEdgeFill=appearance.edgeFill
+                documents[d].preferredEdgeOverlap=appearance.edgeOverlap;documents[d].preferredEdgeReach=appearance.edgeReach
+            }
+        }
         status=success ? "Стиль застосовано · \(completed) стор.":"Зупинено. Змінено \(completed) сторінок"
         return success
     }
@@ -206,10 +232,15 @@ final class ScannerStore:ObservableObject {
         do {
             let output=try await Task.detached(priority:.userInitiated) {try Disk.writeImage(image)}.value
             guard let index=index(id),let p=documents[index].pages.firstIndex(where:{$0.id==leaf.id}) else {return false}
-            var edited=leaf;edited.reviewed=nil;edited.output=output;edited.edgeRepairCount=changed;edited.edgeRevision=14
+            var edited=leaf;edited.reviewed=nil;edited.output=output;edited.edgeRepairCount=changed;edited.edgeRevision=15
             if edited.manualCrop==true {edited.cropVerified=true}
-            edited.text="";edited.ocrReady=false;edited.note="Зміни збережено — оновіть розпізнавання"
-            documents[index].pages[p]=edited;documents[index].candidates=[]
+            let previous=documents[index].pages[p]
+            let geometryChanged=previous.quad != edited.quad || previous.turns != edited.turns || previous.cleanupStrokes != edited.cleanupStrokes
+            if geometryChanged {edited.text="";edited.ocrReady=false}
+            else {edited.text=previous.text;edited.ocrReady=previous.ocrReady}
+            edited.note=geometryChanged ? "Зміни збережено — оновлення тексту після закриття":"Вигляд збережено"
+            documents[index].pages[p]=edited
+            if geometryChanged {documents[index].candidates=[]} else {refreshNames(id)}
             shareURLs=[];exportSummary="";save();return error==nil
         } catch {self.error=error.localizedDescription;return false}
     }
@@ -219,7 +250,7 @@ final class ScannerStore:ObservableObject {
         do {
             let result=try await Task.detached {try autoreleasepool {try Imaging.renderWithEdgeReport(leaf)}}.value
             let name=try await Task.detached {try Disk.writeImage(result.image)}.value
-            var edited=leaf;edited.reviewed=nil;edited.edgeRepairCount=result.changed;edited.edgeRevision=14;if edited.manualCrop==true {edited.cropVerified=true}; edited.output=name; edited.text=""; edited.ocrReady=false; edited.note="Зміни збережено — оновіть розпізнавання"
+            var edited=leaf;edited.reviewed=nil;edited.edgeRepairCount=result.changed;edited.edgeRevision=15;if edited.manualCrop==true {edited.cropVerified=true}; edited.output=name; edited.text=""; edited.ocrReady=false; edited.note="Зміни збережено — оновіть розпізнавання"
             documents[i].pages[p]=edited; documents[i].candidates=[];shareURLs=[];exportSummary="";save()
         } catch { self.error=error.localizedDescription }
     }
@@ -290,7 +321,7 @@ final class ScannerStore:ObservableObject {
                     // A PDF import does not need to be rasterized again on export.
                     // Keep original page contents and only update the page rotation.
                     let keepPDF=compression == .original && doc.pages.allSatisfy {
-                        $0.originalPDF != nil && $0.originalPDFPage != nil && $0.manualCrop != true && ($0.cleanupStrokes ?? []).isEmpty && $0.finish == .natural && ($0.edgeRepairCount ?? 0)==0
+                        $0.originalPDF != nil && $0.originalPDFPage != nil && $0.manualCrop != true && ($0.cleanupStrokes ?? []).isEmpty && $0.finish == .natural && ($0.sharpness ?? 0)==0 && ($0.edgeRepairCount ?? 0)==0
                     }
                     if keepPDF {
                         let merged=PDFDocument()

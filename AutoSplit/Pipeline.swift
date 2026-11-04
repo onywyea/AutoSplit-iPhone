@@ -109,8 +109,11 @@ extension Imaging {
         // narrow rim AFTER a verified photo crop, never to the full PDF canvas.
         let brushed=try cleanRim(original,automatic:false,strokes:leaf.cleanupStrokes ?? [])
         var cropped=try perspective(brushed,quad:quad)
+        // Find wood/contact shadows in original color, before lighting can bleach the evidence.
+        let repaired=try repairRim(cropped,automatic:leaf.edgeFill && verified,overlap:leaf.edgeOverlap ?? 0.06,reach:leaf.edgeReach ?? 0.08)
+        cropped=repaired.image
         if leaf.finish == .white && verified {cropped=try correctPaperLighting(cropped)}
-        return try repairRim(cropped,automatic:leaf.edgeFill && verified,overlap:leaf.edgeOverlap ?? 0.06,reach:leaf.edgeReach ?? 0.08)
+        return EdgeRepairResult(image:cropped,changed:repaired.changed)
     }
     static func prepareCapture(_ leaf:Leaf) throws -> CapturePreview {
         guard let original=Disk.image(leaf.original) else {throw ScanError.message("Оригінал відсутній")}
@@ -118,7 +121,7 @@ extension Imaging {
         // Quick review does not run four OCR rotations. It does show the actual
         // detected crop before the thumbnail becomes available.
         let repaired=try preparedImage(leaf,original:original,quad:decision.quad,verified:decision.verified)
-        let preview=try finish(repaired.image,mode:decision.verified ? leaf.finish : .natural,edgeFill:false)
+        let preview=try finish(repaired.image,mode:decision.verified ? leaf.finish : .natural,edgeFill:false,sharpness:leaf.sharpness ?? ((leaf.finish == .white || leaf.finish == .clean) ? 0.85:0))
         return CapturePreview(image:preview,quad:decision.quad,verified:decision.verified,edgeRepairCount:repaired.changed)
     }
     static func perspective(_ image: UIImage, quad: Quad?) throws -> UIImage {
@@ -131,7 +134,7 @@ extension Imaging {
         guard let out=filter.outputImage,let cg=CIContext().createCGImage(out,from:out.extent) else { throw ScanError.message("Не вдалося виправити перспективу") }
         return UIImage(cgImage:cg)
     }
-    static func finish(_ image:UIImage, mode:Finish, edgeFill:Bool) throws -> UIImage {
+    static func finish(_ image:UIImage, mode:Finish, edgeFill:Bool,sharpness:Double=0.85) throws -> UIImage {
         var image=image
         // White-color correction is applied once, after crop and before edge
         // repair in preparedImage. Avoid stacking the old enhancer over it.
@@ -143,10 +146,10 @@ extension Imaging {
             filter.setValue(0.025,forKey:kCIInputBrightnessKey)
             if let out=filter.outputImage,let cg=CIContext().createCGImage(out,from:out.extent) { image=UIImage(cgImage:cg) }
         }
-        if mode == .white || mode == .clean {image=try enhanceDocumentDetail(image)}
+        if sharpness>0 {image=try enhanceDocumentDetail(image,amount:sharpness)}
         return edgeFill ? try cleanRim(image) : image
     }
-    static func enhanceDocumentDetail(_ image:UIImage) throws -> UIImage {
+    static func enhanceDocumentDetail(_ image:UIImage,amount:Double=0.85) throws -> UIImage {
         guard let cg=image.cgImage else {return image}
         let width=cg.width,height=cg.height
         var rgba=[UInt8](repeating:0,count:width*height*4)
@@ -156,7 +159,7 @@ extension Imaging {
             context.draw(cg,in:CGRect(x:0,y:0,width:width,height:height));return true
         }
         guard valid else {throw ScanError.message("Не вдалося прочитати деталі сторінки")}
-        let corrected=DocumentDetail.enhance(rgba,width:width,height:height)
+        let corrected=DocumentDetail.enhance(rgba,width:width,height:height,amount:amount)
         guard let provider=CGDataProvider(data:Data(corrected) as CFData),
               let out=CGImage(width:width,height:height,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:width*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:flags),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent) else {throw ScanError.message("Не вдалося записати чіткість сторінки")}
         return UIImage(cgImage:out)
@@ -178,7 +181,7 @@ extension Imaging {
         }
         return UIImage(cgImage:output)
     }
-    static func process(_ leaf:Leaf) throws -> PageResult {
+    static func process(_ leaf:Leaf,seekName:Bool=false) throws -> PageResult {
         guard let original=Disk.image(leaf.original) else { throw ScanError.message("Не знайдено оригінал сторінки") }
         let crop=try cropDecision(leaf,original:original)
         let quad=crop.quad
@@ -193,8 +196,17 @@ extension Imaging {
         }
         let decision=RasterAxis.choose(scores:scores,axis:axis,manual:leaf.manualTurns)
         let turns=decision.turns
-        let image=try finish(rotate(cropped,turns:turns),mode:crop.verified ? leaf.finish : .natural,edgeFill:false)
-        let read=try recognize(image,fast:false)
+        let image=try finish(rotate(cropped,turns:turns),mode:crop.verified ? leaf.finish : .natural,edgeFill:false,sharpness:leaf.sharpness ?? ((leaf.finish == .white || leaf.finish == .clean) ? 0.85:0))
+        var read=try recognize(image,fast:false,maxPixel:seekName ? 3400:2600)
+        // Only retry the naming page. Raw paper can retain faint letters lost by
+        // the visual filter; this OCR pass never changes the displayed image.
+        if seekName,NameFinder.candidates(read.0).isEmpty {
+            let raw=rotate(try perspective(original,quad:quad),turns:turns)
+            let fallback=try recognize(raw,fast:false,correction:false,maxPixel:3400)
+            if !fallback.0.isEmpty {
+                read=(read.0+"\n"+fallback.0,max(read.1,fallback.1),read.2 || fallback.2)
+            }
+        }
         var notes:[String] = []
         if leaf.edgeFill {notes.append(repaired.changed>0 ? "Край оброблено":"Край перевірено — без змін")}
         if !crop.verified {notes.append("Межі не знайдено — вкажіть кути або перезніміть ближче")}
@@ -208,7 +220,7 @@ extension Imaging {
         guard let original=Disk.image(leaf.original) else { throw ScanError.message("Оригінал відсутній") }
         let crop=try cropDecision(leaf,original:original)
         let prepared=try preparedImage(leaf,original:original,quad:crop.quad,verified:crop.verified)
-        let image=try finish(rotate(prepared.image,turns:leaf.turns),mode:crop.verified ? leaf.finish : .natural,edgeFill:false)
+        let image=try finish(rotate(prepared.image,turns:leaf.turns),mode:crop.verified ? leaf.finish : .natural,edgeFill:false,sharpness:leaf.sharpness ?? ((leaf.finish == .white || leaf.finish == .clean) ? 0.85:0))
         return EdgeRepairResult(image:image,changed:prepared.changed)
     }
 }

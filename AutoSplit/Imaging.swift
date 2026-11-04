@@ -20,24 +20,35 @@ enum Imaging {
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
         return UIGraphicsImageRenderer(size: size, format: format).image { _ in image.draw(in: CGRect(origin: .zero, size: size)) }
     }
-    static func recognize(_ image: UIImage, fast: Bool) throws -> (String, Float, Bool) {
+    static func recognize(_ image: UIImage, fast: Bool,correction:Bool=true,maxPixel:Int=2600) throws -> (String, Float, Bool) {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = fast ? .fast : .accurate
-        request.usesLanguageCorrection = !fast
+        request.usesLanguageCorrection = !fast && correction
+        request.minimumTextHeight = fast ? 0.01 : 0.003
         let supported = try request.supportedRecognitionLanguages()
         let preferred = ["uk-UA", "ru-RU", "en-US"].filter { supported.contains($0) }
         if !preferred.isEmpty { request.recognitionLanguages = preferred }
         request.automaticallyDetectsLanguage = true
-        guard let cg = resized(image, limit: fast ? 1200 : 2600).cgImage else { throw ScanError.message("Пошкоджене зображення") }
+        guard let cg = resized(image, limit:CGFloat(fast ? 1200 : maxPixel)).cgImage else { throw ScanError.message("Пошкоджене зображення") }
         try VNImageRequestHandler(cgImage: cg).perform([request])
         let rows = (request.results ?? []).sorted {
             let rowA = Int($0.boundingBox.midY * 100)
             let rowB = Int($1.boundingBox.midY * 100)
             if rowA != rowB { return rowA > rowB }
             return $0.boundingBox.minX < $1.boundingBox.minX
-        }.compactMap { $0.topCandidates(1).first }
-        let mean = rows.isEmpty ? Float(0) : rows.map(\.confidence).reduce(0, +) / Float(rows.count)
-        return (rows.map(\.string).joined(separator: "\n"), mean, supported.contains("uk-UA"))
+        }
+        var grouped:[[(String,CGRect,Float)]]=[]
+        for observation in rows {
+            guard let candidate=observation.topCandidates(1).first else {continue}
+            let box=observation.boundingBox
+            if let last=grouped.last?.first,abs(last.1.midY-box.midY)<min(last.1.height,box.height)*0.45 {
+                grouped[grouped.count-1].append((candidate.string,box,candidate.confidence))
+            } else {grouped.append([(candidate.string,box,candidate.confidence)])}
+        }
+        let lines=grouped.map {line in line.sorted {$0.1.minX<$1.1.minX}.map {$0.0}.joined(separator:"   ")}
+        let confidence=grouped.flatMap {$0.map {$0.2}}
+        let mean=confidence.isEmpty ? Float(0):confidence.reduce(0,+)/Float(confidence.count)
+        return (lines.joined(separator:"\n"),mean,supported.contains("uk-UA"))
     }
     static func textAxis(_ image:UIImage)->TextAxis {
         guard let cg=resized(image,limit:1000).cgImage else{return TextAxis(horizontal:0,vertical:0,components:0)}

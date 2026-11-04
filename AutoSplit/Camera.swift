@@ -19,6 +19,9 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     private var lensDevices:[AVCaptureDevice]=[]
     private var changingLens=false
     private var exposureBias:Float=0.3
+    // Camera queue owns writes; frame queue reads this under processingLock.
+    private var seriesFocus=(UserDefaults.standard.object(forKey:"scanflow.seriesFocus") as? Bool) ?? true
+    @Published var seriesFocusEnabled=(UserDefaults.standard.object(forKey:"scanflow.seriesFocus") as? Bool) ?? true
     private var captureAllowedAfter=Date.distantPast
     @Published var lenses:[CameraLens]=[]
     @Published var selectedLensID=""
@@ -71,7 +74,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                         guard let device=preferred ?? normal ?? self.lensDevices.first else { throw ScanError.message("Камера недоступна") }
                         self.processingLock.lock();self.camera=device;self.processingLock.unlock()
                         try device.lockForConfiguration()
-                        if device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
+                        self.configureFocus(device,series:self.seriesFocus)
                         if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
                         if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {device.whiteBalanceMode = .continuousAutoWhiteBalance}
                         device.setExposureTargetBias(min(device.maxExposureTargetBias,max(device.minExposureTargetBias,0.3)),completionHandler:nil)
@@ -120,10 +123,48 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         let supported=camera?.hasFlash == true && output.supportedFlashModes.contains(.on)
         DispatchQueue.main.async {self.lenses=choices;self.selectedLensID=id;self.flashSupported=supported;self.lastFlashFired=nil}
     }
+    // Must be called with the device configuration lock on the camera queue.
+    private func configureFocus(_ device:AVCaptureDevice,series:Bool,point:CGPoint=CGPoint(x:0.5,y:0.5)) {
+        if device.isFocusPointOfInterestSupported {device.focusPointOfInterest=point}
+        if series && device.isFocusModeSupported(.autoFocus) {device.focusMode = .autoFocus}
+        else if !series && device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
+        else if series && device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
+        else if device.isFocusModeSupported(.autoFocus) {device.focusMode = .autoFocus}
+        else if device.isFocusModeSupported(.locked) {device.focusMode = .locked}
+    }
+    func setSeriesFocus(_ enabled:Bool) {
+        queue.async {
+            guard !self.capturing,!self.processingNow,let device=self.camera else {return}
+            do {
+                try device.lockForConfiguration()
+                self.configureFocus(device,series:enabled)
+                device.unlockForConfiguration()
+                self.processingLock.lock();self.seriesFocus=enabled;self.qualityReadyAt = .distantPast;self.processingLock.unlock()
+                UserDefaults.standard.set(enabled,forKey:"scanflow.seriesFocus")
+                self.frames.async {self.qualityHold.reset();self.tracker.resetStability()}
+                self.captureAllowedAfter=Date().addingTimeInterval(0.3)
+                DispatchQueue.main.async {self.seriesFocusEnabled=enabled;self.focusLocked=false;self.focusReady=false;self.focusStatus=enabled ? "Фокусуюся один раз…":"Безперервний автофокус"}
+            } catch {DispatchQueue.main.async {self.message="Не вдалося змінити режим фокуса"}}
+        }
+    }
+    // Some lenses only expose continuous AF. Freeze them after measured settling.
+    private func latchSeriesFocus(_ deviceID:String,position:Float) {
+        queue.async {
+            guard self.seriesFocus,!self.capturing,let device=self.camera,device.uniqueID==deviceID,
+                  device.focusMode == .continuousAutoFocus,device.isFocusModeSupported(.locked),
+                  !device.isAdjustingFocus,abs(device.lensPosition-position)<=0.004 else {return}
+            do {
+                try device.lockForConfiguration()
+                defer {device.unlockForConfiguration()}
+                guard !device.isAdjustingFocus,abs(device.lensPosition-position)<=0.004 else {return}
+                device.focusMode = .locked
+            } catch {DispatchQueue.main.async {self.message="Торкніться документа, щоб повторити фокусування"}}
+        }
+    }
     private func configureLens(_ device:AVCaptureDevice) throws {
         try device.lockForConfiguration()
         defer {device.unlockForConfiguration()}
-        if device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
+        configureFocus(device,series:seriesFocus)
         if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
         if device.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {device.whiteBalanceMode = .continuousAutoWhiteBalance}
         let bias=min(device.maxExposureTargetBias,max(device.minExposureTargetBias,exposureBias))
@@ -145,7 +186,7 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
                   let device=self.lensDevices.first(where:{$0.uniqueID==id}),
                   let old=self.cameraInput,old.device.uniqueID != id else {return}
             self.processingLock.lock();self.changingLens=true;self.processingLock.unlock()
-            DispatchQueue.main.async {self.switchingLens=true;self.message="Перемикання об’єктива…"}
+            DispatchQueue.main.async {self.switchingLens=true;self.focusLocked=false;self.focusReady=false;self.focusStatus="Фокус нового об’єктива…";self.message="Перемикання об’єктива…"}
             defer {
                 self.processingLock.lock();self.changingLens=false;self.processingLock.unlock()
                 DispatchQueue.main.async {self.switchingLens=false}
@@ -210,19 +251,18 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
     }
     func focus(at point:CGPoint) {
         queue.async {
-            guard let device=self.camera else {return}
+            guard !self.capturing,!self.processingNow,let device=self.camera else {return}
             do {
                 try device.lockForConfiguration()
-                if device.isFocusPointOfInterestSupported {device.focusPointOfInterest=point}
                 if device.isExposurePointOfInterestSupported {device.exposurePointOfInterest=point}
-                if device.isFocusModeSupported(.continuousAutoFocus) {device.focusMode = .continuousAutoFocus}
+                self.configureFocus(device,series:self.seriesFocus,point:point)
                 if device.isExposureModeSupported(.continuousAutoExposure) {device.exposureMode = .continuousAutoExposure}
                 device.unlockForConfiguration()
                 self.captureAllowedAfter=Date().addingTimeInterval(0.6)
                 self.processingLock.lock();self.qualityReadyAt = .distantPast;self.processingLock.unlock()
                 self.frames.async {self.tracker.resetStability();self.qualityHold.reset()}
-                DispatchQueue.main.async {self.focusReady=false;self.focusStatus="Фокусуюся…"}
-            } catch {}
+                DispatchQueue.main.async {self.focusReady=false;self.focusLocked=false;self.focusStatus=self.seriesFocus ? "Фокусуюся один раз…":"Фокусуюся…"}
+            } catch {DispatchQueue.main.async {self.message="Не вдалося перефокусувати. Спробуйте ще раз"}}
         }
     }
     private func pauseDetectionAfterShot() {
@@ -243,6 +283,9 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             // A manual shutter press always takes the frame. Automatic shots
             // still wait for a recent settled lens, never for text recognition.
             if automatic && !checked {return}
+            // A refocus request may have just changed locked -> autoFocus before
+            // lens motion starts. A stale settled frame must not cancel that pass.
+            if automatic && self.seriesFocus && device.isFocusModeSupported(.locked) && device.focusMode != .locked {return}
             do {
                 // Freeze a verified focus position through the photo exposure.
                 // This is a real hardware mode, not a green timer indicator.
@@ -272,14 +315,18 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
         defer {
             pauseDetectionAfterShot()
             queue.async {
-                if let device=self.camera,device.isFocusModeSupported(.continuousAutoFocus) {
-                    do {try device.lockForConfiguration();device.focusMode = .continuousAutoFocus;device.unlockForConfiguration()}
-                    catch {DispatchQueue.main.async {self.message="Торкніться тексту, щоб повторити фокусування"}}
+                if !self.seriesFocus {
+                    if let device=self.camera,device.isFocusModeSupported(.continuousAutoFocus) {
+                        do {try device.lockForConfiguration();device.focusMode = .continuousAutoFocus;device.unlockForConfiguration()}
+                        catch {DispatchQueue.main.async {self.message="Торкніться документа, щоб повторити фокусування"}}
+                    }
+                    self.processingLock.lock();self.qualityReadyAt = .distantPast;self.processingLock.unlock()
+                    self.frames.async {self.qualityHold.reset()}
                 }
-                self.processingLock.lock();self.qualityReadyAt = .distantPast;self.processingLock.unlock()
-                self.frames.async {self.qualityHold.reset()}
+                // In series mode keep the actual hardware lock, not just the icon.
+                let locked=self.camera?.focusMode == .locked && self.camera?.isAdjustingFocus == false
                 self.capturing=false
-                DispatchQueue.main.async {self.focusLocked=false;self.focusReady=false;self.focusStatus="Перевіряю фокус…"}
+                DispatchQueue.main.async {self.focusLocked=locked;self.focusReady=locked;self.focusStatus=locked ? "Фокус серії зафіксовано":"Перевіряю фокус…"}
             }
             DispatchQueue.main.async { self.shooting=false }
         }
@@ -348,22 +395,27 @@ final class CameraEngine: NSObject, ObservableObject, AVCapturePhotoCaptureDeleg
             }?.0
             let signature=frameSignature(buffer)
             let focusSample=Date()
-            processingLock.lock();let device=camera;processingLock.unlock()
+            processingLock.lock();let device=camera;let wantsSeries=seriesFocus;processingLock.unlock()
+            let series=wantsSeries && device?.isFocusModeSupported(.locked)==true
             let adjusting=device?.isAdjustingFocus ?? true
             let position=device?.lensPosition ?? 0
-            let quality=qualityHold.update(position:position,adjusting:adjusting,time:focusSample.timeIntervalSinceReferenceDate)
+            let settled=qualityHold.update(position:position,adjusting:adjusting,time:focusSample.timeIntervalSinceReferenceDate)
+            let locked=device?.focusMode == .locked && !adjusting
+            if series && settled && !locked,let device {latchSeriesFocus(device.uniqueID,position:position)}
+            let quality=series ? locked:settled
             let ready=tracker.update(candidate,signature:signature,time:now.timeIntervalSinceReferenceDate,focusing:!quality)
             let quad=tracker.quad
             processingLock.lock()
             qualityReadyAt=quality ? focusSample:.distantPast;readyLensPosition=position;readyDeviceID=device?.uniqueID ?? ""
             processingLock.unlock()
             let focusText:String
-            if adjusting {focusText="Фокусуюся…"}
+            if locked {focusText=series ? "Фокус серії зафіксовано":"Фокус зафіксовано"}
+            else if adjusting {focusText=series ? "Фокусуюся один раз…":"Фокусуюся…"}
             else {focusText=quality ? "Фокус стабільний":"Стабілізую фокус…"}
             let aspect=CGFloat(CVPixelBufferGetWidth(buffer))/CGFloat(CVPixelBufferGetHeight(buffer))
             let text = quad == nil ? "У кадрі має бути весь аркуш · можна зняти вручну" :
                 (auto ? (tracker.armed ? "Аркуш знайдено · готую знімок…":"Перегорніть або заберіть аркуш") : "Аркуш знайдено")
-            DispatchQueue.main.async {self.detected=quad != nil;self.detectedQuad=quad;self.frameAspect=aspect;self.message=text;self.focusReady=quality;self.focusStatus=focusText}
+            DispatchQueue.main.async {self.detected=quad != nil;self.detectedQuad=quad;self.frameAspect=aspect;self.message=text;self.focusReady=quality;self.focusLocked=locked;self.focusStatus=focusText}
             if auto && ready {shoot(automatic:true)}
         } catch {DispatchQueue.main.async {self.message="Зніміть вручну кнопкою внизу"}}
     }
@@ -467,6 +519,7 @@ struct CaptureView:View {
                     Button {exposure.toggle()} label:{Image(systemName:"sun.max")}.accessibilityLabel("Яскравість фото")
                 }.font(.title3).padding(12).scanGlass().padding(.horizontal,16)
                 CameraLensPicker(engine:engine,disabled:waiting).padding(.horizontal,22)
+                CameraFocusControls(engine:engine,disabled:waiting).padding(.horizontal,22)
                 if exposure {
                     HStack {
                         Image(systemName:"sun.min")

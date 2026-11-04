@@ -37,30 +37,21 @@ struct PageEditor:View {
                     textImage=preview
                 } label: {Label("Виділити текст · Live Text",systemImage:"text.viewfinder").font(.subheadline.weight(.medium))}
                 VStack(alignment:.leading,spacing:16) {
-                    Text("Вигляд сторінки").font(.headline)
-                    Picker("Обробка",selection:$leaf.finish) { ForEach(Finish.allCases,id:\.self){Text($0.rawValue).tag($0)} }.pickerStyle(.menu)
-                    Toggle("Автоматично очищати край",isOn:Binding(get:{leaf.edgeFill},set:{leaf.edgeFill=$0;leaf.edgeChoiceExplicit=true})).tint(.accent)
-                    DisclosureGroup("Налаштування краю") {
-                        VStack(alignment:.leading,spacing:12) {
-                            Text("Запас очищення за контуром").font(.subheadline)
-                            HStack {
-                                Slider(value:Binding(get:{(leaf.edgeReach ?? 0.08)*100},set:{leaf.edgeReach=$0/100}),in:0...24,step:1,onEditingChanged:{active in if !active {queuePreview()}})
-                                Text(String(format:"%.0f px",(leaf.edgeReach ?? 0.08)*100)).font(.caption.monospacedDigit()).frame(width:52)
-                            }
-                            Text("Перехід усередину паперу").font(.subheadline)
-                            HStack {
-                                Slider(value:Binding(get:{(leaf.edgeOverlap ?? 0.06)*100},set:{leaf.edgeOverlap=$0/100}),in:2...12,step:0.5,onEditingChanged:{active in if !active {queuePreview()}})
-                                Text(String(format:"%.1f%%",(leaf.edgeOverlap ?? 0.06)*100)).font(.caption.monospacedDigit()).frame(width:52)
-                            }
-                            Text("Запас у пікселях прибирає дрібні залишки фону навколо знайденої межі. Плавний перехід продовжується на папір. Результат оновлюється після відпускання повзунка.").font(.caption).foregroundStyle(.secondary)
-                        }.padding(.top,10).disabled(!leaf.edgeFill)
-                    }
+                    Text("Ця сторінка").font(.headline)
+                    AppearanceControls(leaf:$leaf)
+                    Text("Зміни тут застосовуються лише до відкритої сторінки.").font(.caption).foregroundStyle(.secondary)
+                    Button {
+                        let appearance=leaf
+                        Task {
+                            if await store.applyAppearance(appearance,to:documentID) {dirty=false;previewStatus="Налаштування застосовано до всього документа та нових сторінок"}
+                        }
+                    } label:{Label("Застосувати вигляд і край до всього скану",systemImage:"doc.on.doc")}.disabled(dirty || rendering || store.busy)
                     if !leaf.edgeFill {Label("Очищення вимкнено. Увімкніть перемикач, щоб змінювати край.",systemImage:"info.circle").font(.caption).foregroundStyle(.secondary)}
                     else if !previewStatus.isEmpty {Label(previewStatus,systemImage:"info.circle").font(.caption).foregroundStyle(.secondary)}
                 }.padding(20).background(Color.card,in:RoundedRectangle(cornerRadius:22)).padding(.horizontal)
                 Button("Залишити весь кадр без обробки") {
                     leaf.quad = .full;leaf.manualCrop=true;leaf.cropVerified=true;leaf.turns=0;leaf.manualTurns=0;leaf.finish = .natural;leaf.edgeFill=false;leaf.edgeChoiceExplicit=true;leaf.cleanupStrokes=nil
-                    preview=originalImage
+                    leaf.sharpness=0;dirty=true;refresh()
                 }.font(.subheadline).foregroundStyle(.secondary)
             }.padding(.vertical)
         }
@@ -77,10 +68,16 @@ struct PageEditor:View {
             if beginCrop && !didShowInitialCrop {didShowInitialCrop=true;cropping=true}else{refresh()}
         }
         .onChange(of:leaf.finish){_,_ in dirty=true;refresh()}.onChange(of:leaf.edgeFill){_,_ in dirty=true;refresh()}
+        .onChange(of:leaf.sharpness){_,_ in dirty=true;queuePreview()}
         .onChange(of:leaf.edgeReach){_,_ in dirty=true;queuePreview()}
         .onChange(of:leaf.edgeOverlap){_,_ in dirty=true;queuePreview()}
         .interactiveDismissDisabled(dirty || (store.busy && rendering))
-        .onDisappear{previewDebounce?.cancel()}
+        .onDisappear {
+            previewDebounce?.cancel()
+            Task {
+                if let saved=store.document(documentID)?.pages.first(where:{$0.id==leaf.id}),!saved.ocrReady {await store.analyze(documentID,only:leaf.id)}
+            }
+        }
         .sheet(isPresented:$cropping) {
             CornerEditor(file:leaf.original,initial:leaf.quad ?? .full) { q in leaf.quad=q;leaf.manualCrop=true;leaf.cropVerified=true;dirty=true;refresh() }
         }
@@ -92,6 +89,7 @@ struct PageEditor:View {
         .sheet(isPresented:Binding(get:{textImage != nil},set:{if !$0 {textImage=nil}})) {
             if let image=textImage {LiveTextSheet(image:image)}
         }
+        .alert("Не вдалося зберегти зміни",isPresented:Binding(get:{store.error != nil},set:{if !$0 {store.error=nil}})) {Button("Зрозуміло") {store.error=nil}} message:{Text(store.error ?? "")}
         .overlay { if store.busy { ProgressView().padding(24).background(.regularMaterial,in:RoundedRectangle(cornerRadius:16)) } }
     }
     func tool(_ title:String,_ icon:String,action:@escaping()->Void)->some View {

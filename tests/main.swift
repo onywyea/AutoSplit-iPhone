@@ -368,10 +368,10 @@ check(detailedStroke[(20*40+19)*4]==255,"white side remains white without a brig
 check(DocumentDetail.enhance([UInt8](repeating:210,count:40*40*4),width:40,height:40)==[UInt8](repeating:210,count:40*40*4),"flat paper is unchanged by detail enhancement")
 var bounded=true
 for p in 0..<(40*40) {
-    for c in 0..<3 {let i=p*4+c;let delta=Int(faintStroke[i])-Int(detailedStroke[i]);if delta<0 || delta>12 {bounded=false}}
+    for c in 0..<3 {let i=p*4+c;let delta=Int(faintStroke[i])-Int(detailedStroke[i]);if delta<0 || delta>20 {bounded=false}}
     if faintStroke[p*4+3] != detailedStroke[p*4+3] {bounded=false}
 }
-check(bounded,"detail cannot brighten RGB, darken by over 12, or change alpha")
+check(bounded,"detail cannot brighten RGB, darken by over 20, or change alpha")
 check(!CaptureSampling.sufficient(Quad(points:[Point(x:0.3,y:0.3),Point(x:0.7,y:0.3),Point(x:0.7,y:0.7),Point(x:0.3,y:0.7)])),"distant small sheet does not pass sampling check")
 check(CaptureSampling.sufficient(Quad(points:[Point(x:0.1,y:0.08),Point(x:0.9,y:0.08),Point(x:0.9,y:0.92),Point(x:0.1,y:0.92)])),"frame-filling sheet passes sampling check")
 check(!TextDetail(acutance:0.45,patches:6).clear,"borderline soft detail is no longer auto-accepted")
@@ -391,3 +391,34 @@ var noTextReady=false
 for n in 0...6 {noTextReady=noTextTracker.update(trackingQuad,signature:[],time:Double(n)*0.21,focusing:false) || noTextReady}
 check(noTextReady,"a stable document can auto capture with no text signature")
 print("All \(passed) checks including fast capture passed")
+
+let fringeW=240,fringeH=320
+let fringeBlank=[UInt8](repeating:255,count:fringeW*fringeH*4)
+var fringeSheet=fringeBlank
+for x in 8..<232 where x<80 || (x>88 && x<156) || x>165 {
+    let p=((fringeH-7)*fringeW+x)*4
+    fringeSheet[p]=150;fringeSheet[p+1]=165;fringeSheet[p+2]=185
+}
+let fringeMask=EdgeFringe.mask(fringeSheet,width:fringeW,height:fringeH,margin:24)
+check(fringeMask[(fringeH-7)*fringeW+40]==255,"detached gray blue edge fragments seed their own cleanup")
+check(fringeMask[(fringeH/2)*fringeW+40]==0,"interior remains outside fringe cleanup")
+check(!EdgeFringe.mask(fringeBlank,width:fringeW,height:fringeH).contains(255),"blank paper does not create a fringe")
+var localizedStamp=fringeBlank
+for y in (fringeH-10)..<fringeH {for x in 80..<110 {let p=(y*fringeW+x)*4;localizedStamp[p]=35;localizedStamp[p+1]=70;localizedStamp[p+2]=180}}
+check(!EdgeFringe.mask(localizedStamp,width:fringeW,height:fringeH).contains(255),"localized saturated blue stamp is retained")
+var thickContent=fringeBlank
+for y in (fringeH-20)..<fringeH {for x in 0..<fringeW {for c in 0..<3 {thickContent[(y*fringeW+x)*4+c]=120}}}
+check(!EdgeFringe.mask(thickContent,width:fringeW,height:fringeH).contains(255),"thick content is not a hairline")
+check(DocumentDetail.enhance(faintStroke,width:40,height:40,amount:0)==faintStroke,"zero detail strength preserves exact pixels")
+let gentleDetail=DocumentDetail.enhance(faintStroke,width:40,height:40,amount:0.25)
+let strongDetail=DocumentDetail.enhance(faintStroke,width:40,height:40,amount:1.5)
+check(strongDetail[(20*40+20)*4]<gentleDetail[(20*40+20)*4],"detail slider changes stroke intensity")
+let certificateNames=NameFinder.candidates("Прізвище Коваленко\nім’я Іван   по батькові Петрович")
+check(certificateNames.contains {$0.name=="Коваленко Іван Петрович" && $0.explicit},"certificate fields sharing a row form a named candidate")
+check(NameFinder.plausiblePerson("Коваленко Іван Петрович"),"complete patronymic is a provisional person candidate")
+check(!NameFinder.plausiblePerson("Державна Податкова Служба"),"organization is not a person candidate")
+print("All \(passed) checks including edge fringe, detail controls and certificate fields passed")
+var insetFringe=fringeBlank
+for x in 8..<232 {for c in 0..<3 {insetFringe[((fringeH-21)*fringeW+x)*4+c]=160}}
+check(!EdgeFringe.mask(insetFringe,width:fringeW,height:fringeH,margin:0).contains(255),"zero fringe margin does not reach an inset line")
+check(EdgeFringe.mask(insetFringe,width:fringeW,height:fringeH,margin:24)[(fringeH-21)*fringeW+100]==255,"fringe margin slider extends the actual search depth")

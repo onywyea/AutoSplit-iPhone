@@ -16,25 +16,16 @@ struct DocumentStyleSheet:View {
     let documentID:UUID
     var pageIDs:Set<UUID>?=nil
     private var targetCount:Int {store.document(documentID)?.pages.filter {pageIDs?.contains($0.id) ?? true}.count ?? 0}
-    @State private var selected=Finish.white
+    @State private var appearance=Leaf(original:"",output:"")
     @State private var applying=false
+
     var body:some View {
         NavigationStack {
             Form {
                 Section {
-                    ForEach(Finish.allCases,id:\.self) {style in
-                        Button {selected=style} label:{
-                            HStack(alignment:.top,spacing:12) {
-                                VStack(alignment:.leading,spacing:5) {
-                                    Text(style.rawValue).font(.headline).foregroundStyle(.primary)
-                                    Text(style.detail).font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength:4)
-                                Image(systemName:selected==style ? "checkmark.circle.fill":"circle").foregroundStyle(Color.accent)
-                            }.padding(.vertical,5)
-                        }.disabled(applying)
-                    }
-                } header:{Text(pageIDs==nil ? "Стиль усього документа":"Стиль вибраних сторінок")} footer:{Text(pageIDs==nil ? "Обробка з оригіналів. Нові сторінки отримають цей стиль.":"Зміняться лише вибрані сторінки. Стиль нових сторінок не змінюється.")}
+                    AppearanceControls(leaf:$appearance).disabled(applying)
+                } header:{Text(pageIDs==nil ? "Весь документ":"Вибрані сторінки")} footer:{Text(pageIDs==nil ? "Стиль, різкість і очищення краю застосуються до всіх сторінок та нових фото. Кути, поворот і пензель кожної сторінки зберігаються.":"Стиль, різкість і край зміняться лише на вибраних сторінках.")}
+                if let error=store.error {Section {Text(error).font(.caption).foregroundStyle(.red)}}
                 if applying {
                     Section {
                         HStack {ProgressView();Text(store.status)}
@@ -45,7 +36,7 @@ struct DocumentStyleSheet:View {
                         Button("Застосувати · \(targetCount) стор.") {
                             applying=true
                             Task {
-                                let completed=await store.applyStyle(selected,to:documentID,pageIDs:pageIDs)
+                                let completed=await store.applyAppearance(appearance,to:documentID,pageIDs:pageIDs)
                                 applying=false
                                 if completed {dismiss()}
                             }
@@ -55,7 +46,11 @@ struct DocumentStyleSheet:View {
             }.navigationTitle("Стиль PDF").navigationBarTitleDisplayMode(.inline)
             .toolbar {ToolbarItem(placement:.cancellationAction){Button("Закрити"){dismiss()}.disabled(applying)}}
             .interactiveDismissDisabled(applying)
-            .onAppear {selected=store.document(documentID)?.preferredFinish ?? .white}
+            .onAppear {
+                guard let doc=store.document(documentID) else {return}
+                if let sample=doc.pages.first(where:{pageIDs?.contains($0.id) ?? true}) {appearance=sample}
+                else {appearance.finish=doc.preferredFinish ?? .white;appearance.sharpness=doc.preferredSharpness;appearance.edgeFill=doc.preferredEdgeFill ?? true;appearance.edgeOverlap=doc.preferredEdgeOverlap;appearance.edgeReach=doc.preferredEdgeReach}
+            }
         }
     }
 }

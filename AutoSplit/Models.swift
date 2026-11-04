@@ -16,6 +16,7 @@ struct Leaf: Codable, Identifiable {
     var turns = 0
     var manualTurns: Int? = nil
     var finish = Finish.natural
+    var sharpness:Double? = nil
     var edgeFill = true
     var edgeOverlap:Double? = nil
     var edgeReach:Double? = nil
@@ -40,6 +41,10 @@ struct ScanDocument: Codable, Identifiable {
     var candidates: [NameCandidate] = []
     var nameConfirmed = false
     var preferredFinish: Finish? = nil
+    var preferredSharpness:Double? = nil
+    var preferredEdgeFill:Bool? = nil
+    var preferredEdgeOverlap:Double? = nil
+    var preferredEdgeReach:Double? = nil
 }
 enum ScanError: LocalizedError {
     case message(String)

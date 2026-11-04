@@ -18,6 +18,10 @@ extension Imaging {
         }
         guard ok else {return EdgeRepairResult(image:image,changed:0)}
         var mask=automatic ? EdgeBand.mask(rgba,width:w,height:h,bandFraction:0.12,margin:Int((max(0,min(0.24,reach))*100).rounded())) : [UInt8](repeating:0,count:w*h)
+        if automatic {
+            let fringe=EdgeFringe.mask(rgba,width:w,height:h,margin:Int((max(0,min(0.24,reach))*100).rounded()))
+            for pixel in mask.indices where fringe[pixel]>0 {mask[pixel]=255}
+        }
         if !strokes.isEmpty {
             let format=UIGraphicsImageRendererFormat();format.scale=1;format.opaque=true
             let painted=UIGraphicsImageRenderer(size:CGSize(width:w,height:h),format:format).image { renderer in

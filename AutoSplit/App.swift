@@ -5,7 +5,8 @@ import UniformTypeIdentifiers
 struct ScanFlowApp:App {
     @StateObject private var store=ScannerStore()
     @AppStorage("scanflow.appearance") private var appearance="system"
-    var body:some Scene { WindowGroup { LibraryView().environmentObject(store).environment(\.locale,Locale(identifier:"uk_UA")).tint(.accent).preferredColorScheme(appearance=="dark" ? .dark:(appearance=="light" ? .light:nil)) } }
+    @AppStorage("scanflow.accent") private var accentID="coral"
+    var body:some Scene { WindowGroup { LibraryView().environmentObject(store).environment(\.locale,Locale(identifier:"uk_UA")).tint(ScanAccent(rawValue:accentID)?.color ?? ScanAccent.coral.color).accentColor(ScanAccent(rawValue:accentID)?.color ?? ScanAccent.coral.color).preferredColorScheme(appearance=="dark" ? .dark:(appearance=="light" ? .light:nil)) } }
 }
 struct LibraryView:View {
     @EnvironmentObject var store:ScannerStore
@@ -173,6 +174,10 @@ struct NameSheet:View {
         NavigationStack {
             Form {
                 Section("Назва PDF"){TextField("Прізвище Ім’я По батькові",text:$name)}
+                Section {
+                    Button {Task {await store.analyze(documentID,force:true);name=store.document(documentID)?.title ?? name}} label:{Label("Заново розпізнати ПІБ",systemImage:"text.viewfinder")}.disabled(store.busy)
+                    if store.busy {HStack {ProgressView();Text(store.status).font(.caption)}}
+                }
                 Section {
                     ForEach(store.document(documentID)?.candidates ?? []) { candidate in
                         Button{name=candidate.name}label:{VStack(alignment:.leading,spacing:6){Text(candidate.name).foregroundStyle(.primary);Text(candidate.evidence).font(.caption).foregroundStyle(.secondary)}}

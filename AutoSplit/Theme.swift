@@ -2,14 +2,14 @@ import SwiftUI
 import UIKit
 
 #if !compiler(>=6.2)
-#error("ScanFlow 0.4.5 needs Xcode 26+. Upload .github/workflows/build.yml from this update and start a NEW Run workflow.")
+#error("ScanFlow 0.4.8 needs Xcode 26+. Upload .github/workflows/build.yml from this update and start a NEW Run workflow.")
 #endif
 
 extension Color {
     static let canvas=Color(uiColor:UIColor {trait in trait.userInterfaceStyle == .dark ? UIColor(red:0.055,green:0.065,blue:0.080,alpha:1):UIColor(red:0.970,green:0.956,blue:0.936,alpha:1)})
     static let card=Color(uiColor:UIColor {trait in trait.userInterfaceStyle == .dark ? UIColor(red:0.105,green:0.122,blue:0.145,alpha:1):.white})
-    static let accent=Color(uiColor:UIColor {trait in trait.userInterfaceStyle == .dark ? UIColor(red:1,green:0.63,blue:0.43,alpha:1):UIColor(red:0.71,green:0.22,blue:0.07,alpha:1)})
-    static let scanAction=Color(red:0.78,green:0.27,blue:0.10)
+    static var accent:Color {Color.accentColor}
+    static var scanAction:Color {Color.accentColor}
     static let scanSuccess=Color(uiColor:UIColor {trait in trait.userInterfaceStyle == .dark ? UIColor(red:0.38,green:0.85,blue:0.66,alpha:1):UIColor(red:0.04,green:0.41,blue:0.25,alpha:1)})
     static let scanOutline=Color.primary.opacity(0.09)
 }
@@ -29,7 +29,7 @@ struct ScanPillStyle:ButtonStyle {
     let prominent:Bool
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration:Configuration)->some View {
-        configuration.label.font(.subheadline.weight(.semibold)).padding(.horizontal,16).frame(minHeight:50)
+        configuration.label.font(.subheadline.weight(.semibold)).padding(.horizontal,16).frame(minHeight:44)
             .foregroundStyle(prominent ? Color.white:Color.primary)
             .background(prominent ? Color.scanAction:Color.card,in:Capsule())
             .overlay(Capsule().stroke(prominent ? Color.white.opacity(0.18):Color.scanOutline,lineWidth:1))
@@ -42,8 +42,8 @@ struct ScanButtonModifier:ViewModifier {
     @ViewBuilder func body(content:Content)->some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0,*),!reduced {
-            if prominent {content.buttonStyle(.glassProminent).buttonBorderShape(.capsule).tint(Color.scanAction).foregroundStyle(.white).controlSize(.large)}
-            else {content.buttonStyle(.glass).buttonBorderShape(.capsule).tint(Color.primary).controlSize(.large)}
+            if prominent {content.buttonStyle(.glassProminent).buttonBorderShape(.capsule).tint(Color.scanAction).foregroundStyle(.white).controlSize(.regular)}
+            else {content.buttonStyle(.glass).buttonBorderShape(.capsule).tint(Color.primary).controlSize(.regular)}
         } else {content.buttonStyle(ScanPillStyle(prominent:prominent))}
         #else
         content.buttonStyle(ScanPillStyle(prominent:prominent))
@@ -88,6 +88,7 @@ struct AppearanceSheet:View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.accessibilityReduceTransparency) private var reduced
     @AppStorage("scanflow.appearance") private var appearance="system"
+    @AppStorage("scanflow.accent") private var accentID="coral"
     private var effect:String {
         if reduced {return "Непрозорий · системна доступність"}
         #if compiler(>=6.2)
@@ -105,11 +106,18 @@ struct AppearanceSheet:View {
                         Text("Темна · графіт").tag("dark")
                     }.pickerStyle(.inline)
                 }
+                Section("Акцентний колір") {
+                    Picker("Колір кнопок",selection:$accentID) {
+                        ForEach(ScanAccent.allCases) {accent in
+                            Label {Text(accent.title)} icon:{Image(systemName:"circle.fill").foregroundStyle(accent.color)}.tag(accent.rawValue)
+                        }
+                    }.pickerStyle(.inline)
+                }
                 Section("Ефект панелей") {
                     Label(effect,systemImage:"circle.lefthalf.filled")
                     Text("Документ не покривається склом. Пониження прозорості в налаштуваннях iPhone вимикає прозорі ефекти.").font(.caption).foregroundStyle(.secondary)
                 }
-                Section("Версія") {Text("ScanFlow 0.4.5 · 24")}
+                Section("Версія") {Text("ScanFlow 0.4.8 · 27")}
             }.navigationTitle("Вигляд").navigationBarTitleDisplayMode(.inline)
                 .toolbar {ToolbarItem(placement:.confirmationAction) {Button("Готово") {dismiss()}}}
         }.tint(.accent)

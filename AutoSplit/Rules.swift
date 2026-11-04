@@ -120,12 +120,14 @@ enum NameFinder {
                 let ns=line as NSString
                 guard let match=regex.firstMatch(in:line,range:NSRange(location:0,length:ns.length)) else{continue}
                 let tail=ns.substring(from:match.range.location+match.range.length).trimmingCharacters(in:CharacterSet(charactersIn:" :\t"))
-                let value=tail.isEmpty && i+1<lines.count ? lines[i+1].trimmingCharacters(in:.whitespaces) : tail
+                let raw=tail.isEmpty && i+1<lines.count ? lines[i+1].trimmingCharacters(in:.whitespaces) : tail
+                let otherLabel=raw.range(of:"\\s+(?:по\\s+батькові|ім[’'ʼ]?я|прізвище)",options:[.regularExpression,.caseInsensitive])
+                let value=String(raw[..<(otherLabel?.lowerBound ?? raw.endIndex)]).trimmingCharacters(in:.whitespacesAndNewlines)
                 if value.range(of:"^[А-ЯІЇЄҐа-яіїєґ’'ʼ-]{2,}$",options:.regularExpression) != nil{return value}
             }
             return nil
         }
-        if let surname=field("^\\s*прізвище"),let given=field("^\\s*ім[’'ʼ]?я"),let patronymic=field("^\\s*по батькові") {
+        if let surname=field("^\\s*прізвище"),let given=field("^\\s*ім[’'ʼ]?я"),let patronymic=field("(?:^|\\s)по\\s+батькові") {
             let name=[surname,given,patronymic].map{$0.prefix(1).uppercased()+$0.dropFirst().lowercased()}.joined(separator:" ")
             found[name]=NameCandidate(name:name,evidence:"Окремі поля: прізвище, ім’я, по батькові",explicit:true)
         }
@@ -133,6 +135,12 @@ enum NameFinder {
             if $0.explicit != $1.explicit { return $0.explicit && !$1.explicit }
             return $0.name < $1.name
         }
+    }
+    static func plausiblePerson(_ name:String)->Bool {
+        let parts=name.split(separator:" ")
+        guard parts.count==3 else {return false}
+        let last=String(parts[2]).lowercased()
+        return ["вич","вна","ич","івна","овна"].contains {last.hasSuffix($0)}
     }
     static func safeName(_ text: String) -> String {
         let bad=CharacterSet(charactersIn:"/\\:*?\"<>|\n\r")
@@ -292,7 +300,7 @@ enum PaperRaster {
     // Feather goes INTO the document, so the original paper edge is not a hard compositing seam.
     static func overlap(_ rgba:[UInt8],width w:Int,height h:Int,mask:[UInt8],radius:Int?=nil)->[UInt8] {
         guard w>2,h>2,rgba.count==w*h*4,mask.count==w*h else {return mask}
-        let feather=max(3,min(256,radius ?? max(12,min(w,h)/25)))
+        let feather=max(3,min(512,radius ?? max(12,min(w,h)/25)))
         let inset=max(1,feather/3)
         var alpha=mask,distance=[UInt16](repeating:UInt16.max,count:w*h),queue=[Int32]()
         for p in mask.indices where mask[p]>0 {
@@ -858,7 +866,9 @@ struct FocusQualityHold {
 // Bounded dark-side detail enhancement. Never generates glyphs, bright halos
 // or new resolution. Flat regions and low-amplitude paper grain stay unchanged.
 enum DocumentDetail {
-    static func enhance(_ rgba:[UInt8],width:Int,height:Int)->[UInt8] {
+    static func enhance(_ rgba:[UInt8],width:Int,height:Int,amount:Double=0.85)->[UInt8] {
+        let strength=max(0,min(1.5,amount))
+        if strength==0 {return rgba}
         guard width>=5,height>=5,rgba.count==width*height*4 else {return rgba}
         let count=width*height
         var luminance=[UInt16](repeating:0,count:count)
@@ -909,7 +919,7 @@ enum DocumentDetail {
             let high:Int=max(max(l,r),max(t,b))
             let span:Int=high-low
             guard gradient>=12 || span>=12 else {continue}
-            let adjustment=Int(min(12.0,(detail-2.0)*0.70).rounded())
+            let adjustment=Int(min(20.0,(detail-2.0)*strength).rounded())
             guard adjustment>0 else {continue}
             for c in 0..<3 {let i=p*4+c;output[i]=UInt8(max(0,Int(rgba[i])-adjustment))}
         }}
@@ -942,5 +952,68 @@ struct LensSettleHold {
         if adjusting || moved || elapsed<0 || elapsed>1.5 {credit=0;return false}
         credit+=min(0.3,max(0,elapsed))
         return credit>=0.20
+    }
+}
+
+// A disconnected hairline cannot seed the old flood fill. Inspect each of the
+// four outer margins independently, requiring a long thin run AND clean paper
+// behind it. A localized stamp or glyph never provides enough support.
+enum EdgeFringe {
+    static func mask(_ rgba:[UInt8],width w:Int,height h:Int,margin:Int=8)->[UInt8] {
+        guard w>=80,h>=80,rgba.count==w*h*4 else {return [UInt8](repeating:0,count:max(0,w*h))}
+        var result=[UInt8](repeating:0,count:w*h)
+        let depth=min(72,max(8,min(w,h)/90)+max(0,min(24,margin)))
+        let extra=max(1,min(24,margin))
+        for side in 0..<4 {
+            let length=side<2 ? w:h
+            func index(_ along:Int,_ inward:Int)->Int {
+                switch side {
+                case 0:return inward*w+along
+                case 1:return (h-1-inward)*w+along
+                case 2:return along*w+inward
+                default:return along*w+w-1-inward
+                }
+            }
+            func light(_ p:Int)->Int {let i=p*4;return (Int(rgba[i])+Int(rgba[i+1])+Int(rgba[i+2]))/3}
+            let step=max(1,length/400)
+            let start=length/30,end=length-length/30
+            var selected:[Int]=[]
+            for d in 0..<depth {
+                var votes=0,total=0,minHit=length,maxHit=0,run=0,longest=0
+                for a in stride(from:start,to:end,by:step) {
+                    total+=1
+                    let p=index(a,d),i=p*4
+                    let r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+                    let back=light(index(a,min(depth+10,d+7)))
+                    let value=(r+g+b)/3
+                    // Pale gray/blue JPEG fragments count, saturated ink does not.
+                    var thick=0
+                    if back>=185 && back-value>=22 {
+                        for cross in max(0,d-4)...(d+4) {if back-light(index(a,cross))>=22 {thick+=1}}
+                    }
+                    if back>=185 && back-value>=22 && thick<6 && max(r,max(g,b))-min(r,min(g,b))<65 {
+                        votes+=1;minHit=min(minHit,a);maxHit=max(maxHit,a);run+=step;longest=max(longest,run)
+                    } else {run=0}
+                }
+                if total>0 && votes*100>=total*32 && maxHit-minHit>length*3/5 && longest>=length/12 {selected.append(d)}
+            }
+            // Thick content blocks/photographs are not a paper edge.
+            guard !selected.isEmpty,selected.count<=max(5,depth/3) else {continue}
+            for d in selected {
+                let behind=min(h,w)-1
+                for a in 0..<length {
+                    let p=index(a,d),i=p*4
+                    let r=Int(rgba[i]),g=Int(rgba[i+1]),b=Int(rgba[i+2])
+                    let back=light(index(a,min(behind,d+7)))
+                    guard back>=185,back-(r+g+b)/3>=14,max(r,max(g,b))-min(r,min(g,b))<65 else {continue}
+                    // Widen only the supported line. Never erase a whole page margin.
+                    for dd in max(0,d-1)...min(depth-1,d+min(3,extra)) {
+                        let q=index(a,dd),j=q*4
+                        if !EdgeBand.protectedInk(Int(rgba[j]),Int(rgba[j+1]),Int(rgba[j+2])) || dd==d {result[q]=255}
+                    }
+                }
+            }
+        }
+        return result
     }
 }
