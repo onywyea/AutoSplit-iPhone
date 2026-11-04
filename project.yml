@@ -1,5 +1,9 @@
 name: AutoSplit
 options:
+  fileTypes:
+    icon:
+      file: true
+      buildPhase: resources
   bundleIdPrefix: ua.autosplit
   deploymentTarget:
     iOS: '17.0'

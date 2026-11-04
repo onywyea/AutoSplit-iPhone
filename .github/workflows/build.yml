@@ -53,13 +53,7 @@ jobs:
         run: |
           brew install xcodegen
           xcodegen generate
-          python3 - <<'PYCODE'
-          from pathlib import Path
-          project=Path("AutoSplit.xcodeproj/project.pbxproj").read_text()
-          assert "folder.iconcomposer.icon" in project, "Native Icon Composer resource was not recognized"
-          assert "ScanFlowIcon.icon in Resources" in project
-          print("Native Liquid Glass icon resource: included")
-          PYCODE
+          python3 scripts/verify_icon_project.py
       - name: Build unsigned device app
         run: >-
           xcodebuild -project AutoSplit.xcodeproj -scheme AutoSplit
