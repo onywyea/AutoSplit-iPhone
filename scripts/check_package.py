@@ -10,7 +10,7 @@ assert (asset/'AppIcon.png').is_file()
 assert json.loads((asset/'Contents.json').read_text())['images'][0]['filename']=='AppIcon.png'
 assert (root/'.github/workflows/build.yml').is_file()
 assert 'ua.autosplit.scanner' in (root/'project.yml').read_text()
-assert 'CURRENT_PROJECT_VERSION: 31' in (root/'project.yml').read_text()
+assert 'CURRENT_PROJECT_VERSION: 32' in (root/'project.yml').read_text()
 print('Package files, asset catalog and upgrade bundle identifier: OK')
 
 icon=root/'AutoSplit/ScanFlowIcon.icon'

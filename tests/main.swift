@@ -546,3 +546,33 @@ for y in 0..<lineH {for x in 0..<lineW {sideLetters[x*lineH+(lineH-1-y)]=wideLet
 let sideAxis=RasterFlow.estimate(sideLetters,width:lineH,height:lineW)
 check(sideAxis.reliable && sideAxis.evidence<0,"sideways line spacing overrides tall rotated letter shapes")
 print("All \(passed) scanner checks passed")
+
+func blockLines(_ confidence:Double,texts:[String],x:Double=0.12,y:Double=0.2)->[OrientationLine] {
+    texts.enumerated().map {i,text in OrientationLine(region:OrientationRegion(x:x,y:y+Double(i)*0.035,width:0.65,height:0.018),text:text,confidence:confidence)}
+}
+let cardLines=["КАРТКА ПЛАТНИКА ПОДАТКІВ","Дата народження та місце видачі","Реєстраційний номер облікової картки","Дата реєстрації у державному реєстрі","Орган державної податкової служби","Посадова особа органу та дата видачі"]
+let correctCard=OrientationBlocks.reading(blockLines(0.94,texts:cardLines),aspect:0.7)
+let badCard=OrientationBlocks.reading(blockLines(0.42,texts:["абвгд ежзий клмнопр", "стуфхц чшщюя абвгд", "ежзий клмнопр стуфхц"]),aspect:0.7)
+check(correctCard.bodyLines==6 && correctCard.bodyCharacters>100,"compact tax-card body forms coherent orientation block")
+check(OrientationText.choose([badCard,OrientationReading(),correctCard,OrientationReading()],axis:upright,manual:nil).turns==2,"upright card text can correct a half-turn without old vocabulary gate")
+check(OrientationText.choose([correctCard,OrientationReading(),badCard,OrientationReading()],axis:upright,manual:nil).turns==0,"upright card is not inverted by weaker opposite reading")
+let sidewaysCard=OrientationText.choose([OrientationReading(),badCard,OrientationReading(),correctCard],axis:sidewaysAxis,manual:nil)
+check(sidewaysCard.turns==3,"coherent body selects correct top after quarter-turn")
+let isolated=OrientationBlocks.reading([OrientationLine(region:OrientationRegion(x:0.2,y:0.8,width:0.35,height:0.05),text:"Україна згідно з оригіналом",confidence:1)],aspect:0.7)
+check(isolated.bodyLines==1 && isolated.score==0,"isolated seal cannot supply body polarity score")
+check(OrientationText.choose([correctCard,OrientationReading(),isolated,OrientationReading()],axis:upright,manual:nil).turns==0,"a clearer isolated seal cannot defeat six faint body lines")
+let unknownBody=OrientationBlocks.reading(blockLines(0.95,texts:["Бібліотека бібліографія архівний запис", "Екземпляр каталожний інвентарний облік", "Примірник фондовий тематичний розділ"]),aspect:0.7)
+check(unknownBody.bodyScore>0 && unknownBody.bodyLines==3,"ordinary text outside scanner vocabulary remains direction evidence")
+check(OrientationText.choose([OrientationReading(),OrientationReading(),unknownBody,OrientationReading()],axis:upright,manual:nil).turns==2,"unknown-vocabulary body can correct upside-down page")
+check(OrientationText.choose([correctCard,OrientationReading(),correctCard,OrientationReading()],axis:upright,manual:nil).turns==0,"tied coherent text keeps photographed top")
+check(OrientationText.choose([badCard,OrientationReading(),correctCard,OrientationReading()],axis:upright,manual:1).turns==1,"manual turn survives stronger auto evidence")
+let inkSample:[UInt8]=[255,255,255,255, 250,250,250,255, 195,195,195,255, 175,190,225,255, 0,0,0,255]
+let inkResult=DocumentInk.enhance(inkSample,amount:0.75)
+check(DocumentInk.enhance(inkSample,amount:0)==inkSample,"zero ink contrast preserves every channel")
+check(Array(inkResult[0..<8])==Array(inkSample[0..<8]),"white and near-white paper remain unchanged")
+check(inkResult[8]<170 && inkResult[8]==inkResult[9] && inkResult[9]==inkResult[10],"faint neutral text becomes darker without color cast")
+check(inkResult[14]>inkResult[13] && inkResult[13]>inkResult[12],"blue stamp hue ordering is preserved")
+check(Int(inkResult[14])-Int(inkResult[12])>50,"blue stamp gains saturation")
+check(stride(from:3,to:inkSample.count,by:4).allSatisfy{inkResult[$0]==inkSample[$0]},"ink contrast preserves alpha")
+check(DocumentInk.enhance([1,2,3],amount:1)==[1,2,3],"invalid ink buffer is rejected")
+print("All \(passed) scanner checks including compact body orientation and color contrast passed")

@@ -51,7 +51,7 @@ struct PageEditor:View {
                 }.padding(20).background(Color.card,in:RoundedRectangle(cornerRadius:22)).padding(.horizontal)
                 Button("Залишити весь кадр без обробки") {
                     leaf.quad = .full;leaf.manualCrop=true;leaf.cropVerified=true;leaf.turns=0;leaf.manualTurns=0;leaf.finish = .natural;leaf.edgeFill=false;leaf.edgeChoiceExplicit=true;leaf.cleanupStrokes=nil
-                    leaf.sharpness=0;dirty=true;refresh()
+                    leaf.sharpness=0;leaf.inkStrength=0;dirty=true;refresh()
                 }.font(.subheadline).foregroundStyle(.secondary)
             }.padding(.vertical)
         }
@@ -68,6 +68,7 @@ struct PageEditor:View {
             if beginCrop && !didShowInitialCrop {didShowInitialCrop=true;cropping=true}else{refresh()}
         }
         .onChange(of:leaf.finish){_,_ in dirty=true;refresh()}.onChange(of:leaf.edgeFill){_,_ in dirty=true;refresh()}
+        .onChange(of:leaf.inkStrength){_,_ in dirty=true;queuePreview()}
         .onChange(of:leaf.sharpness){_,_ in dirty=true;queuePreview()}
         .onChange(of:leaf.edgeReach){_,_ in dirty=true;queuePreview()}
         .onChange(of:leaf.edgeOverlap){_,_ in dirty=true;queuePreview()}

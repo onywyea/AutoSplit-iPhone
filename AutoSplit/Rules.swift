@@ -137,6 +137,11 @@ enum PageFingerprint {
 struct OrientationReading {
     var score=0.0
     var rawScore=0.0
+    var bodyScore=0.0
+    var bodyCharacters=0
+    var bodyLines=0
+    var bodyAnchors=0
+    var bodyRegion:OrientationRegion?=nil
     var anchors=0
     var lines=0
 }
@@ -145,7 +150,7 @@ enum OrientationText {
     // Stamps alone and OCR character count cannot justify a half-turn.
     static func line(_ text:String,confidence:Double)->OrientationReading {
         let tokens=text.lowercased().split {!$0.isLetter}.map(String.init).filter {$0.count>=2}
-        let stems=["підпис","команд","прізвищ","началь","персон","підтвердж","достовір","військ","особ","установ","посад","протокол","рішен","свідоц","постанов","згод","голов","секрет","член","коміс","лікуван","засідан","народж","серія","номер","штаб","даних","найменуван","захист","україн","документ","порядок","збір","обробк","відповід","майор","полковник","дата","имя","фамил","подпис","командир","персональ","сведен","учрежден","решен","заседан","signature","surname","personal","document","certificat","commander","consent","information","date","name"]
+        let stems=["паспорт","картк","платник","податк","реєстр","зареєстр","видан","народжен","державн","громадян","орган","капітан","лейтенант","солдат","лаборатор","довідк","отримувач","посвідч","підпис","команд","прізвищ","началь","персон","підтвердж","достовір","військ","особ","установ","посад","протокол","рішен","свідоц","постанов","згод","голов","секрет","член","коміс","лікуван","засідан","народж","серія","номер","штаб","даних","найменуван","захист","україн","документ","порядок","збір","обробк","відповід","майор","полковник","дата","имя","фамил","подпис","командир","персональ","сведен","учрежден","решен","заседан","signature","surname","personal","document","certificat","commander","consent","information","date","name"]
         guard confidence>=0.35,tokens.count>=2 else {return OrientationReading()}
         let hits=min(4,tokens.filter {word in stems.contains {word.hasPrefix($0)}}.count)
         let letters=min(100,tokens.reduce(0){$0+$1.count})
@@ -155,6 +160,18 @@ enum OrientationText {
     static func choose(_ readings:[OrientationReading],axis:TextAxis?=nil,manual:Int?)->(turns:Int,uncertain:Bool) {
         if let manual {return ((manual%4+4)%4,false)}
         guard readings.count==4 else {return (0,true)}
+        let allowed:[Int]
+        if let axis,axis.reliable {allowed=axis.vertical>axis.horizontal ? [1,3]:[0,2]}
+        else {allowed=[0,1,2,3]}
+        let bodies=allowed.sorted {readings[$0].bodyScore==readings[$1].bodyScore ? $0<$1:readings[$0].bodyScore>readings[$1].bodyScore}
+        let bodyBest=bodies[0],bodyNext=bodies[1],body=readings[bodyBest],other=readings[bodyNext]
+        let enoughBody=body.bodyLines>=3 && body.bodyCharacters>=45
+        let bodyMargin=body.bodyScore>other.bodyScore*1.18+12
+        let bodyWords=body.bodyAnchors>=other.bodyAnchors+2 && body.bodyScore>other.bodyScore*1.06+6
+        if enoughBody && (bodyMargin || bodyWords) {return(bodyBest,false)}
+        // A coherent printed block outweighs any isolated seal. For a horizontal
+        // page preserve its photographed top when the two body readings tie.
+        if enoughBody,allowed.contains(0) {return (0,true)}
         if let axis,axis.reliable,axis.vertical>axis.horizontal {
             // A reliable sideways text axis requires a quarter-turn even when
             // Ukrainian words are absent from the small lexical vocabulary.
@@ -1121,5 +1138,89 @@ enum ScanNaming {
         let name=shortName(base),ending=suffix(value)
         guard !name.isEmpty else{return ""}
         return name+(ending.isEmpty ? "":"_"+ending)
+    }
+}
+
+
+struct OrientationRegion {
+    var x:Double;var y:Double;var width:Double;var height:Double
+}
+struct OrientationLine {
+    var region:OrientationRegion
+    var text:String
+    var confidence:Double
+}
+enum OrientationBlocks {
+    static func reading(_ observations:[OrientationLine],aspect:Double)->OrientationReading {
+        let lines=observations.filter {line in
+            let b=line.region,letters=line.text.filter{$0.isLetter}.count
+            return line.confidence>=0.35 && letters>=6 && b.width*aspect/max(0.0001,b.height)>=3 && b.height>=0.001
+        }
+        guard !lines.isEmpty else{return OrientationReading()}
+        var seen=Set<Int>(),best=OrientationReading()
+        for start in lines.indices where !seen.contains(start) {
+            var group=[start];seen.insert(start);var cursor=0
+            while cursor<group.count {
+                let a=lines[group[cursor]].region;cursor+=1
+                for j in lines.indices where !seen.contains(j) {
+                    let b=lines[j].region
+                    let overlap=max(0,min(a.x+a.width,b.x+b.width)-max(a.x,b.x))
+                    let gap=abs((a.y+a.height/2)-(b.y+b.height/2))
+                    let ratio=max(a.height,b.height)/max(0.0001,min(a.height,b.height))
+                    if overlap>=min(a.width,b.width)*0.3 && gap<=max(a.height,b.height)*4.5 && ratio<=2.6 {
+                        group.append(j);seen.insert(j)
+                    }
+                }
+            }
+            var value=OrientationReading(),raw=0.0
+            var x=1.0,y=1.0,right=0.0,top=0.0
+            for i in group {
+                let line=lines[i],b=line.region
+                let letters=min(120,line.text.filter{$0.isLetter}.count)
+                let quality=pow(max(0,min(1,line.confidence)),3)
+                raw+=Double(letters)*quality
+                let lexical=OrientationText.line(line.text,confidence:line.confidence)
+                value.bodyAnchors+=lexical.anchors;value.bodyCharacters+=letters
+                x=min(x,b.x);y=min(y,b.y);right=max(right,b.x+b.width);top=max(top,b.y+b.height)
+            }
+            value.bodyLines=group.count
+            // Lexical cues supplement visual OCR confidence, without making a
+            // small document vocabulary a mandatory gate for passports/cards.
+            value.bodyScore=raw+min(raw*0.4,Double(value.bodyAnchors)*12)
+            value.rawScore=raw
+            value.bodyRegion=OrientationRegion(x:x,y:y,width:right-x,height:top-y)
+            if value.bodyLines>=3,value.bodyCharacters>=45 {
+                value.score=value.bodyScore;value.anchors=value.bodyAnchors;value.lines=value.bodyLines
+            }
+            if value.bodyScore>best.bodyScore {best=value}
+        }
+        return best
+    }
+}
+
+enum DocumentInk {
+    static func enhance(_ rgba:[UInt8],amount:Double)->[UInt8] {
+        let amount=max(0,min(1.5,amount))
+        guard amount>0,rgba.count%4==0 else{return rgba}
+        // Lookup tables keep 48 MP rendering linear and avoid per-pixel pow.
+        let gamma=1+amount*1.2
+        let lut=(0...255).map {v -> Double in
+            let value=Double(v)
+            if v>=247 {return value}
+            let corrected=255*pow(value/255,gamma)
+            let blend=min(1,(247-value)/12)
+            return value+(corrected-value)*blend
+        }
+        var result=rgba
+        for p in stride(from:0,to:rgba.count,by:4) {
+            let r=lut[Int(rgba[p])],g=lut[Int(rgba[p+1])],b=lut[Int(rgba[p+2])]
+            let high=max(r,max(g,b)),low=min(r,min(g,b))
+            let boost=high-low>10 ? 1+amount*0.12:1
+            for c in 0..<3 {
+                let value=high-(high-lut[Int(rgba[p+c])])*boost
+                result[p+c]=UInt8(max(0,min(255,value.rounded())))
+            }
+        }
+        return result
     }
 }

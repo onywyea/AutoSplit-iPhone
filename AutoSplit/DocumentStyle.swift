@@ -49,7 +49,7 @@ struct DocumentStyleSheet:View {
             .onAppear {
                 guard let doc=store.document(documentID) else {return}
                 if let sample=doc.pages.first(where:{pageIDs?.contains($0.id) ?? true}) {appearance=sample}
-                else {appearance.finish=doc.preferredFinish ?? .white;appearance.sharpness=doc.preferredSharpness;appearance.edgeFill=doc.preferredEdgeFill ?? true;appearance.edgeOverlap=doc.preferredEdgeOverlap;appearance.edgeReach=doc.preferredEdgeReach}
+                else {appearance.finish=doc.preferredFinish ?? .white;appearance.sharpness=doc.preferredSharpness;appearance.inkStrength=doc.preferredInkStrength;appearance.edgeFill=doc.preferredEdgeFill ?? true;appearance.edgeOverlap=doc.preferredEdgeOverlap;appearance.edgeReach=doc.preferredEdgeReach}
             }
         }
     }

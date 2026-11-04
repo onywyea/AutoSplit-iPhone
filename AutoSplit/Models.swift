@@ -17,6 +17,7 @@ struct Leaf: Codable, Identifiable {
     var manualTurns: Int? = nil
     var finish = Finish.natural
     var sharpness:Double? = nil
+    var inkStrength:Double? = nil
     var edgeFill = true
     var edgeOverlap:Double? = nil
     var edgeReach:Double? = nil
@@ -47,6 +48,7 @@ struct ScanDocument: Codable, Identifiable {
     var nameConfirmed = false
     var preferredFinish: Finish? = nil
     var preferredSharpness:Double? = nil
+    var preferredInkStrength:Double? = nil
     var preferredEdgeFill:Bool? = nil
     var preferredEdgeOverlap:Double? = nil
     var preferredEdgeReach:Double? = nil

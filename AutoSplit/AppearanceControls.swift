@@ -5,6 +5,12 @@ struct AppearanceControls:View {
     var body:some View {
         VStack(alignment:.leading,spacing:16) {
             Picker("Стиль",selection:$leaf.finish) {ForEach(Finish.allCases,id:\.self) {Text($0.rawValue).tag($0)}}.pickerStyle(.menu)
+            Text("Контраст тексту та печаток").font(.subheadline)
+            HStack {
+                Slider(value:Binding(get:{leaf.inkStrength ?? ((leaf.finish == .white || leaf.finish == .clean) ? 0.75:0)},set:{leaf.inkStrength=$0}),in:0...1.5,step:0.05)
+                Text(String(format:"%.0f%%",(leaf.inkStrength ?? ((leaf.finish == .white || leaf.finish == .clean) ? 0.75:0))*100)).font(.caption.monospacedDigit()).frame(width:52)
+            }
+            Text("Підсилює чорний текст і колір печаток. 0% — без підсилення. Застосовується до сторінки або всього скану за вашим вибором.").font(.caption).foregroundStyle(.secondary)
             Text("Різкість").font(.subheadline)
             HStack {
                 Slider(value:Binding(get:{leaf.sharpness ?? ((leaf.finish == .white || leaf.finish == .clean) ? 0.85:0)},set:{leaf.sharpness=$0}),in:0...1.5,step:0.05)

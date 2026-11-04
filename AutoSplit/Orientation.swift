@@ -23,27 +23,41 @@ extension Imaging {
               let out=CGImage(width:w,height:h,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:flags),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent) else {return UIImage(cgImage:cg)}
         return UIImage(cgImage:out)
     }
-    static func orientationReading(_ image:UIImage) throws -> OrientationReading {
+    static func orientationReading(_ image:UIImage,focusBody:Bool=false) throws -> OrientationReading {
         guard let cg=image.cgImage else {return OrientationReading()}
         let request=VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
-        request.usesLanguageCorrection=false
-        request.minimumTextHeight=0.003
+        request.usesLanguageCorrection=true
+        request.minimumTextHeight=0.001
         let languages=try request.supportedRecognitionLanguages()
         let preferred=["uk-UA","ru-RU","en-US"].filter {languages.contains($0)}
         if !preferred.isEmpty {request.recognitionLanguages=preferred}
         request.automaticallyDetectsLanguage=true
         try VNImageRequestHandler(cgImage:cg).perform([request])
-        var evidence=OrientationReading()
+        var lines:[OrientationLine]=[]
         for observation in request.results ?? [] {
-            let box=observation.boundingBox
-            // Circular seals and isolated glyphs are weak direction evidence.
-            let aspect=box.width*Double(cg.width)/max(1,box.height*Double(cg.height))
             guard let text=observation.topCandidates(1).first else {continue}
-            if aspect>=1.3,text.confidence>=0.3 {evidence.rawScore+=Double(min(100,text.string.filter{$0.isLetter}.count))*pow(Double(text.confidence),2)}
-            guard aspect>=2 else {continue}
-            let line=OrientationText.line(text.string,confidence:Double(text.confidence))
-            evidence.score+=line.score;evidence.anchors+=line.anchors;evidence.lines+=line.lines
+            let box=observation.boundingBox
+            let dx=abs(observation.topRight.x-observation.topLeft.x)
+            let dy=abs(observation.topRight.y-observation.topLeft.y)
+            // Curved seal lettering is not a straight printed line.
+            guard dy<=max(0.001,dx)*0.24 else {continue}
+            lines.append(OrientationLine(region:OrientationRegion(x:box.minX,y:box.minY,width:box.width,height:box.height),text:text.string,confidence:Double(text.confidence)))
+        }
+        var evidence=OrientationBlocks.reading(lines,aspect:Double(cg.width)/Double(cg.height))
+        if focusBody,let b=evidence.bodyRegion,b.width*b.height<0.55,b.width>0.02,b.height>0.02 {
+            let margin=0.012
+            let x=max(0,b.x-margin),y=max(0,1-b.y-b.height-margin)
+            let bounds=CGRect(x:x*Double(cg.width),y:y*Double(cg.height),width:min(1-x,b.width+margin*2)*Double(cg.width),height:min(1-y,b.height+margin*2)*Double(cg.height)).integral
+            if let crop=cg.cropping(to:bounds) {
+                let source=UIImage(cgImage:crop)
+                let factor=min(3,2400/CGFloat(max(crop.width,crop.height)))
+                let size=CGSize(width:CGFloat(crop.width)*factor,height:CGFloat(crop.height)*factor)
+                let format=UIGraphicsImageRendererFormat();format.scale=1
+                let enlarged=UIGraphicsImageRenderer(size:size,format:format).image {_ in source.draw(in:CGRect(origin:.zero,size:size))}
+                let zoom=try orientationReading(enlarged)
+                if zoom.bodyScore>evidence.bodyScore {evidence=zoom}
+            }
         }
         return evidence
     }
