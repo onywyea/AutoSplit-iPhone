@@ -42,22 +42,12 @@ extension Imaging {
         for observation in request.results ?? [] {
             guard let text=observation.topCandidates(1).first else {continue}
             let box=observation.boundingBox
-            // Vision may recognize a reversed string confidently. Compare the
-            // first and last word locations, rather than confidence alone.
-            let string=text.string
-            if let first=string.indices.first(where:{string[$0].isLetter}),
-               let last=string.indices.last(where:{string[$0].isLetter}),first != last,
-               let firstBox=try? text.boundingBox(for:first..<string.index(after:first)),
-               let lastBox=try? text.boundingBox(for:last..<string.index(after:last)) {
-                let advanceX=(lastBox.boundingBox.midX-firstBox.boundingBox.midX)*Double(cg.width)
-                let advanceY=(lastBox.boundingBox.midY-firstBox.boundingBox.midY)*Double(cg.height)
-                let separated=hypot(advanceX,advanceY)>max(2,box.width*Double(cg.width)*0.12)
-                if separated && (advanceX<=0 || abs(advanceY)>advanceX*0.35) {continue}
-            }
-            let dx=abs(observation.topRight.x-observation.topLeft.x)
+            // Vision recognizes upside-down text too, with the same confidence.
+            // Its quadrilateral retains the signed reading direction: do not
+            // discard the sign of topRight - topLeft when choosing page top.
+            let dx=observation.topRight.x-observation.topLeft.x
             let dy=abs(observation.topRight.y-observation.topLeft.y)
-            // Curved seal lettering is not a straight printed line.
-            guard dy<=max(0.001,dx)*0.24 else {continue}
+            guard dx>0,dy<=dx*0.24 else {continue}
             lines.append(OrientationLine(region:OrientationRegion(x:box.minX,y:box.minY,width:box.width,height:box.height),text:text.string,confidence:Double(text.confidence)))
         }
         var evidence=OrientationBlocks.reading(lines,aspect:Double(cg.width)/Double(cg.height))
