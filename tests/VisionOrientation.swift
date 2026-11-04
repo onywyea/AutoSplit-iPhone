@@ -22,7 +22,7 @@ enum Imaging {
         let t=(turns%4+4)%4,w=t%2==0 ? cg.width:cg.height,h=t%2==0 ? cg.height:cg.width
         let ctx=CGContext(data:nil,width:w,height:h,bitsPerComponent:8,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
         ctx.translateBy(x:CGFloat(w)/2,y:CGFloat(h)/2);ctx.rotate(by:CGFloat(t) * .pi / 2)
-        ctx.draw(cg,in:CGRect(x:-CGFloat(cg.width)/2,y:-CGFloat(cg.height)/2,width:cg.width,height:cg.height))
+        ctx.draw(cg,in:CGRect(x:-CGFloat(cg.width)/2,y:-CGFloat(cg.height)/2,width:CGFloat(cg.width),height:CGFloat(cg.height)))
         return NSImage(cgImage:ctx.makeImage()!)
     }
 }
