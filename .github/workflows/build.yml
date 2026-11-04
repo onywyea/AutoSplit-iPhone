@@ -6,7 +6,7 @@ on:
     paths: ["AutoSplit/**", "project.yml", "scripts/**", "tests/**", ".github/workflows/build.yml"]
 jobs:
   build:
-    runs-on: macos-26
+    runs-on: macos-26-intel
     permissions:
       contents: read
     steps:
@@ -32,7 +32,7 @@ jobs:
                   stream.write('DEVELOPER_DIR='+chosen+'\n')
               print('Using '+chosen)
           else:
-              raise SystemExit('::error::Stable Xcode 26 is missing. Use macos-26 and the complete workflow from ScanFlow 0.4.2.')
+              raise SystemExit('::error::Stable Xcode 26 is missing. Use macos-26-intel and the complete workflow from ScanFlow 0.4.2.')
           PYCODE
       - name: Verify Liquid Glass SDK
         run: |
