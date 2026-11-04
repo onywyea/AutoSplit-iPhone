@@ -283,6 +283,7 @@ enum RasterAxis {
         var visited=[UInt8](repeating:0,count:gray.count)
         var queue:[Int]=[]
         var horizontal=0,vertical=0,components=0
+        var textMask=[UInt8](repeating:0,count:gray.count)
         for start in gray.indices where visited[start]==0 && Int(gray[start])<threshold {
             queue.removeAll(keepingCapacity:true);queue.append(start);visited[start]=1
             var cursor=0,minX=width,minY=height,maxX=0,maxY=0
@@ -301,8 +302,30 @@ enum RasterAxis {
             let ratio=Double(w)/Double(h),fill=Double(area)/Double(w*h)
             guard ratio>=0.2,ratio<=5,fill>=0.12,fill<=0.85 else{continue}
             components+=1
+            for pixel in queue {textMask[pixel]=1}
             if Double(h)>Double(w)*1.22 {horizontal+=1}
             else if Double(w)>Double(h)*1.22 {vertical+=1}
+        }
+        // Letter proportions depend on the font. Correlation across several
+        // character spacings follows complete printed lines instead.
+        if components>=60,width>40,height>40 {
+            let marginX=max(1,width*3/100),marginY=max(1,height*3/100)
+            var alongRows=0,alongColumns=0
+            for y in marginY..<(height-marginY-18) {
+                for x in marginX..<(width-marginX-18) where textMask[y*width+x] != 0 {
+                    let pixel=y*width+x
+                    for distance in 6...18 {
+                        alongRows+=Int(textMask[pixel+distance])
+                        alongColumns+=Int(textMask[pixel+distance*width])
+                    }
+                }
+            }
+            let total=alongRows+alongColumns
+            let glyphEvidence=Double(horizontal-vertical)/Double(max(1,horizontal+vertical))
+            let disagrees=(alongRows>alongColumns) != (horizontal>vertical)
+            if total>500,Double(abs(alongRows-alongColumns))/Double(total)>=0.18,disagrees || abs(glyphEvidence)<0.18 {
+                return TextAxis(horizontal:alongRows,vertical:alongColumns,components:components)
+            }
         }
         return TextAxis(horizontal:horizontal,vertical:vertical,components:components)
     }

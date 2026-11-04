@@ -531,3 +531,18 @@ check(ScanNaming.compose("Дяпкін_ДВ",suffix:" ПКМУ975  ")=="Дяпк
 check(ScanNaming.suffix("__ПКМУ168__мати / дочка ")=="ПКМУ168_мати_дочка","suffix normalization removes spaces and invalid separators")
 check(ScanNaming.shortName("Мій власний скан")=="Мій власний скан","custom title stays intact")
 print("All \(passed) checks including naming and sideways regression passed")
+
+// Wide glyphs deliberately contradict the simplistic letter-aspect heuristic.
+let lineW=320,lineH=320
+var wideLetters=[UInt8](repeating:255,count:lineW*lineH)
+for row in 0..<8 {for col in 0..<14 {
+    let x=12+col*20,y=12+row*35
+    for dy in 0..<7 {for dx in 0..<12 where dy==0 || dy==6 || dx==5 {wideLetters[(y+dy)*lineW+x+dx]=0}}
+}}
+let wideAxis=RasterAxis.estimate(wideLetters,width:lineW,height:lineH)
+check(wideAxis.reliable && wideAxis.evidence>0,"line spacing overrides wide upright letter shapes")
+var sideLetters=[UInt8](repeating:255,count:lineW*lineH)
+for y in 0..<lineH {for x in 0..<lineW {sideLetters[x*lineH+(lineH-1-y)]=wideLetters[y*lineW+x]}}
+let sideAxis=RasterAxis.estimate(sideLetters,width:lineH,height:lineW)
+check(sideAxis.reliable && sideAxis.evidence<0,"sideways line spacing overrides tall rotated letter shapes")
+print("All \(passed) scanner checks passed")
