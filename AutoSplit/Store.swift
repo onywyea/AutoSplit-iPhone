@@ -27,6 +27,14 @@ final class ScannerStore:ObservableObject {
     func save() { do { try Disk.save(documents) } catch { self.error=error.localizedDescription } }
     func newDocument(folderID:UUID?=nil)->UUID {
         var doc=ScanDocument();doc.folderID=folderID
+        if let folderID, let folder = folders.first(where: { $0.id == folderID }) {
+            switch folder.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "померлі": doc.nameSuffix = "ПКМУ975"
+            case "загиблі": doc.nameSuffix = "ПКМУ168"
+            default: break
+            }
+        }
+        if let suffix = doc.nameSuffix { doc.title = ScanNaming.compose(doc.title, suffix: suffix) }
         if let previous=previousSubject(before:doc.created,excluding:doc.id) {
             doc.previousPersonName=previous.name;doc.previousNameSourceTitle=previous.sourceTitle
         }
@@ -342,7 +350,7 @@ final class ScannerStore:ObservableObject {
             var edited=leaf;edited.reviewed=nil;edited.output=output;edited.edgeRepairCount=changed;edited.edgeRevision=17
             if edited.manualCrop==true {edited.cropVerified=true}
             let previous=documents[index].pages[p]
-            let geometryChanged=previous.quad != edited.quad || previous.turns != edited.turns || previous.cleanupStrokes != edited.cleanupStrokes
+            let geometryChanged=previous.quad != edited.quad || previous.turns != edited.turns || previous.outputTrim != edited.outputTrim || previous.cleanupStrokes != edited.cleanupStrokes
             if geometryChanged {edited.text="";edited.ocrReady=false}
             else {edited.text=previous.text;edited.ocrReady=previous.ocrReady}
             edited.note=geometryChanged ? "Зміни збережено — оновлення тексту після закриття":"Вигляд збережено"
@@ -408,8 +416,9 @@ final class ScannerStore:ObservableObject {
             }
         }
     }
-    func export(_ ids:Set<UUID>,task:String?=nil,compression:PDFCompression = .original) async {
-        guard !busy else{return}
+    func export(_ ids:Set<UUID>,task:String?=nil,compression:PDFCompression = .original,
+                archive: Bool = false, batchName: String? = nil) async {
+        guard !busy, savingPhotos == 0 else { return }
         for id in ids {await ensureOrientation(id)}
         guard !busy else {return}
         busy=true;error=nil;status="Підготовка PDF…";shareURLs=[];exportSummary=""
@@ -417,21 +426,35 @@ final class ScannerStore:ObservableObject {
         let selected=documents.filter{ids.contains($0.id)}
         do {
             guard !selected.isEmpty else{throw ScanError.message("Виберіть скани")}
-            let folder=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-            try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
             let urls=try await Task.detached(priority:.userInitiated) { () throws -> [URL] in
+                let manager = FileManager.default
+                let exports = try manager.url(for: .documentDirectory, in: .userDomainMask,
+                                              appropriateFor: nil, create: true)
+                    .appendingPathComponent("Exports", isDirectory: true)
+                try manager.createDirectory(at: exports, withIntermediateDirectories: true)
+                let token = UUID().uuidString
+                let folder = exports.appendingPathComponent("." + token, isDirectory: true)
+                try manager.createDirectory(at: folder, withIntermediateDirectories: false)
+                defer { try? manager.removeItem(at: folder) }
+                let batch = ExportArchive.fileStem(batchName ?? (selected.count == 1 ? selected[0].title : "Скани"))
                 var urls:[URL]=[]
+                var names = Set<String>()
                 for doc in selected {
                     guard !doc.pages.isEmpty else{throw ScanError.message("Скан «\(doc.title)» порожній")}
                     // Export never requires per-page review. Unverified photo
                     // outputs already retain the complete frame via cropDecision.
-                    let documentFolder=folder.appendingPathComponent(doc.id.uuidString,isDirectory:true)
-                    try FileManager.default.createDirectory(at:documentFolder,withIntermediateDirectories:true)
-                    let url=documentFolder.appendingPathComponent(NameFinder.safeName(doc.title)+".pdf")
+                    let base = ExportArchive.fileStem(doc.title)
+                    var filename = base + ".pdf"
+                    var duplicate = 2
+                    while !names.insert(filename.lowercased()).inserted {
+                        filename = "\(duplicate)_" + base + ".pdf"
+                        duplicate += 1
+                    }
+                    let url = folder.appendingPathComponent(filename)
                     // A PDF import does not need to be rasterized again on export.
                     // Keep original page contents and only update the page rotation.
                     let keepPDF=compression == .original && doc.pages.allSatisfy {
-                        $0.originalPDF != nil && $0.originalPDFPage != nil && $0.manualCrop != true && ($0.cleanupStrokes ?? []).isEmpty && $0.finish == .natural && ($0.sharpness ?? 0)==0 && ($0.inkStrength ?? 0)==0 && ($0.edgeRepairCount ?? 0)==0
+                        $0.originalPDF != nil && $0.originalPDFPage != nil && $0.manualCrop != true && $0.outputTrim == nil && ($0.cleanupStrokes ?? []).isEmpty && $0.finish == .natural && ($0.sharpness ?? 0)==0 && ($0.inkStrength ?? 0)==0 && ($0.edgeRepairCount ?? 0)==0
                     }
                     if keepPDF {
                         let merged=PDFDocument()
@@ -457,6 +480,10 @@ final class ScannerStore:ObservableObject {
                                 let cg=try PDFImage.load(leaf.output,compression:compression)
                                 let imageSize=CGSize(width:cg.width,height:cg.height)
                                 var bounds=imageSize.width>imageSize.height ? CGRect(x:0,y:0,width:842,height:595) : box
+                                if leaf.outputTrim != nil {
+                                    let scale = 842 / max(imageSize.width, imageSize.height)
+                                    bounds = CGRect(x: 0, y: 0, width: imageSize.width * scale, height: imageSize.height * scale)
+                                }
                                 let media=Data(bytes:&bounds,count:MemoryLayout<CGRect>.size) as CFData
                                 context.beginPDFPage([kCGPDFContextMediaBox as String:media] as CFDictionary)
                                 let factor=min(bounds.width/imageSize.width,bounds.height/imageSize.height)
@@ -469,20 +496,34 @@ final class ScannerStore:ObservableObject {
                     } catch { context.closePDF();throw error }
                     urls.append(url)
                 }
+                var taskURL: URL?
                 if let task {
-                    let url=folder.appendingPathComponent("Завдання_для_ChatGPT.txt")
-                    let manifest=selected.map{"• \($0.title): \($0.pages.count) стор."}.joined(separator:"\n")
-                    try (task+"\n\nДокументи:\n"+manifest).write(to:url,atomically:true,encoding:.utf8);urls.append(url)
+                    let url = folder.appendingPathComponent("Завдання_для_ChatGPT.txt")
+                    let manifest = zip(urls, selected).map { file, document in
+                        "• \(file.lastPathComponent): \(document.pages.count) стор."
+                    }.joined(separator: "\n")
+                    try (task + "\n\nДокументи:\n" + manifest).write(to: url, atomically: true, encoding: .utf8)
+                    taskURL = url
                 }
-                return urls
+                if archive {
+                    let pdfs = urls
+                    urls = try ExportArchive.makeParts(pdfs, task: taskURL, in: folder, name: batch)
+                    for pdf in pdfs { try manager.removeItem(at: pdf) }
+                    if let taskURL { try manager.removeItem(at: taskURL) }
+                } else if let taskURL {
+                    urls.append(taskURL)
+                }
+                let destination = exports.appendingPathComponent(batch + "_" + String(token.prefix(8)), isDirectory: true)
+                try manager.moveItem(at: folder, to: destination)
+                return urls.map { destination.appendingPathComponent($0.lastPathComponent) }
             }.value
             shareURLs=urls
-            let bytes=urls.filter{$0.pathExtension=="pdf"}.reduce(Int64(0)) {sum,url in
+            let bytes=urls.reduce(Int64(0)) {sum,url in
                 let values=try? url.resourceValues(forKeys:[.fileSizeKey])
                 return sum+Int64(values?.fileSize ?? 0)
             }
             exportSummary="\(selected.count) PDF · \(ByteCountFormatter.string(fromByteCount:bytes,countStyle:.file))"
-            status="PDF підготовлено"
+            status="Збережено в Exports"
         } catch { self.error=error.localizedDescription }
     }
     func exportOriginals(_ id:UUID,pageID:UUID?=nil) async -> [URL] {
@@ -493,7 +534,10 @@ final class ScannerStore:ObservableObject {
         guard !selected.isEmpty else {error="Оригінал цієї сторінки недоступний";return []}
         do {
             return try await Task.detached(priority:.userInitiated) { () throws -> [URL] in
-                let folder=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString,isDirectory:true)
+                let folder = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask,
+                                                         appropriateFor: nil, create: true)
+                    .appendingPathComponent("Exports", isDirectory: true)
+                    .appendingPathComponent("Оригінали_" + String(UUID().uuidString.prefix(8)), isDirectory: true)
                 try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
                 var urls:[URL]=[]
                 do {

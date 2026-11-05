@@ -6,7 +6,8 @@ struct PageBrowser:View {
     let initialPageID:UUID
     @State private var selection:UUID
     @State private var editing=false
-    @State private var cropNow=false
+    @State private var cropPage: Leaf?
+    @State private var cropFailed = false
     @State private var exporting=false
     @State private var quickSharing=false
     @State private var exportFailed=false
@@ -23,7 +24,10 @@ struct PageBrowser:View {
     }
     var body:some View {
         VStack(spacing:0) {
-            if !pages.isEmpty {
+            if let page = cropPage {
+                PageTrimView(page: page, save: { applyTrim($0, to: page) }, cancel: { cropPage = nil })
+                    .disabled(store.busy)
+            } else if !pages.isEmpty {
                 if let page=selectedPage,page.sourceKind=="camera",page.cropVerified != true {
                     Button {editing=true} label:{Label("За бажанням уточніть краї",systemImage:"crop").font(.caption.weight(.semibold)).padding(10)}.tint(.orange).disabled(store.busy)
                 }
@@ -65,7 +69,7 @@ struct PageBrowser:View {
                 Button {let id=removed.first?.1.id;store.restorePages(documentID,removed:removed);removed=[];if let id {selection=id}} label:{Label("Скасувати видалення",systemImage:"arrow.uturn.backward").frame(minHeight:44)}.disabled(store.busy || store.savingPhotos>0)
             }
         }.frame(maxWidth:.infinity,maxHeight:.infinity).background(.black)
-        .navigationTitle("\(pages.isEmpty ? 0:position+1) / \(pages.count)").navigationBarTitleDisplayMode(.inline).toolbar(.visible,for:.navigationBar)
+        .navigationTitle("\(pages.isEmpty ? 0:position+1) / \(pages.count)").navigationBarTitleDisplayMode(.inline).toolbar(cropPage == nil ? .visible : .hidden,for:.navigationBar)
         .toolbar {
             ToolbarItem(placement:.topBarTrailing) {
                 Menu {
@@ -86,7 +90,10 @@ struct PageBrowser:View {
         .sheet(isPresented:$quickSharing) {ShareSheet(urls:store.shareURLs)}
         .alert("Не вдалося підготувати PDF",isPresented:$exportFailed) {Button("Зрозуміло") {store.error=nil}} message:{Text(store.error ?? "Повторіть експорт")}
 
-        .sheet(isPresented:$editing,onDismiss:{cropNow=false}) {if let page=selectedPage {NavigationStack {PageEditor(documentID:documentID,leaf:page,beginCrop:cropNow || (page.sourceKind=="camera" && page.cropVerified != true))}}}
+        .alert("Не вдалося обрізати сторінку", isPresented: $cropFailed) {
+            Button("Зрозуміло") { store.error = nil }
+        } message: { Text(store.error ?? "Повторіть збереження") }
+        .sheet(isPresented:$editing) {if let page=selectedPage {NavigationStack {PageEditor(documentID:documentID,leaf:page,beginCrop:page.sourceKind=="camera" && page.cropVerified != true)}}}
         .sheet(isPresented:$styling) {DocumentStyleSheet(documentID:documentID)}
         .sheet(isPresented:$originals) {OriginalsExportSheet(documentID:documentID,pageID:selection)}
         .confirmationDialog("Видалити цю сторінку зі скану?",isPresented:$deleting,titleVisibility:.visible) {
@@ -95,6 +102,15 @@ struct PageBrowser:View {
         } message:{Text("Сторінку буде вилучено з документа. Інші сторінки залишаться.")}
         .onChange(of:pages.map(\.id)) {_,ids in
             if !ids.contains(selection),let first=ids.first {selection=first}
+        }
+    }
+    private func applyTrim(_ rect: CGRect?, to page: Leaf) {
+        var edited = page
+        edited.outputTrim = rect
+        Task {
+            await store.updatePage(documentID, edited)
+            if store.error == nil { cropPage = nil }
+            else { cropFailed = true }
         }
     }
     private func savePDF() {
@@ -107,9 +123,9 @@ struct PageBrowser:View {
     private var toolsDock:some View {
         ScanControls {
             HStack(spacing:4) {
-                action("Обрізка","crop") {cropNow=true;editing=true}
+                action("Обрізка","crop") {cropPage=selectedPage}
                 action("Поворот","rotate.right") {rotatePage()}
-                action("Вигляд","slider.horizontal.3") {cropNow=false;editing=true}
+                action("Вигляд","slider.horizontal.3") {editing=true}
                 action("PDF","square.and.arrow.up") {savePDF()}
             }.padding(.vertical,8)
         }

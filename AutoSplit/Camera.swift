@@ -611,12 +611,18 @@ struct CaptureView:View {
                             Thumb(file:pages.last?.output).frame(width:52,height:70).clipShape(RoundedRectangle(cornerRadius:7))
                             Text("\(count)").font(.caption.bold().monospacedDigit()).padding(5).background(Color.accent,in:Circle()).offset(x:7,y:7)
                         }
-                    }.frame(width:74).disabled(count==0 || waiting).accessibilityLabel("Переглянути сторінки")
+                    }.frame(width:94).disabled(count==0 || waiting).accessibilityLabel("Переглянути сторінки")
                     Spacer()
                     Button {engine.shoot()} label:{Circle().fill(.white).frame(width:68,height:68).padding(6).overlay(Circle().stroke(.white,lineWidth:2))}.disabled(waiting).accessibilityLabel("Зняти сторінку")
                     Spacer()
-                    Button {dismiss()} label:{Text(store.savingPhotos>0 ? "Зберігаю…":"Готово").font(.subheadline.weight(.semibold)).frame(width:74)}.disabled(waiting)
-                }.padding(.horizontal,26)
+                    Button { dismiss() } label: {
+                        Text(store.savingPhotos > 0 ? "Зберігаю…" : "Готово")
+                            .font(.headline).lineLimit(1).minimumScaleFactor(0.75)
+                            .frame(width: 94, height: 62).contentShape(Rectangle())
+                    }.scanPrimaryButton().disabled(waiting)
+                }
+                .padding(.horizontal, 14)
+                .background { Color.black.opacity(0.001).onTapGesture {} }
                 HStack(spacing:6) {
                     Text("Документ").font(.caption.weight(.semibold))
                     if engine.flashEnabled,let fired=engine.lastFlashFired {

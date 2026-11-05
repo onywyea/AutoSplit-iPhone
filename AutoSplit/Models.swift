@@ -11,6 +11,7 @@ struct Leaf: Codable, Identifiable {
     var sourceKind: String? = nil
     var originalPDF: String? = nil
     var originalPDFPage: Int? = nil
+    var outputTrim: CGRect? = nil
     var manualCrop: Bool? = nil
     var cropVerified: Bool? = nil
     var turns = 0

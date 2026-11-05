@@ -53,6 +53,18 @@ jobs:
         run: |
           swiftc AutoSplit/Rules.swift AutoSplit/Orientation.swift tests/VisionOrientation.swift -o vision-tests
           ./vision-tests
+      - name: Verify ZIP integrity and Ukrainian filenames
+        run: |
+          swiftc AutoSplit/Rules.swift AutoSplit/ExportArchive.swift tests/ExportArchiveTest.swift -o archive-test
+          ./archive-test "$RUNNER_TEMP/scanflow-archive"
+          python3 - <<'PYCODE'
+          import os, pathlib, zipfile
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'scanflow-archive' / 'Тест.zip'
+          with zipfile.ZipFile(path) as z:
+              assert z.testzip() is None
+              assert z.read('Тест_ПКМУ975.pdf') == b'%PDF-fixture'
+              assert z.read('Завдання.txt').decode() == 'КОМПЛЕКТ-975'
+          PYCODE
       - name: Generate Xcode project
         run: |
           brew install xcodegen
@@ -63,13 +75,23 @@ jobs:
           xcodebuild -project AutoSplit.xcodeproj -scheme AutoSplit
           -configuration Release -sdk iphoneos -destination 'generic/platform=iOS'
           -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
-      - name: Package unsigned IPA
+      - name: Verify file sharing and package unsigned IPA
         run: |
+          python3 - <<'PYCODE'
+          import plistlib
+          with open('build/Build/Products/Release-iphoneos/AutoSplit.app/Info.plist','rb') as stream:
+              info = plistlib.load(stream)
+          assert info['UIFileSharingEnabled'] is True
+          assert info['LSSupportsOpeningDocumentsInPlace'] is True
+          assert info['CFBundleIdentifier'] == 'ua.autosplit.scanner'
+          assert info['CFBundleShortVersionString'] == '0.4.15'
+          assert info['CFBundleVersion'] == '34'
+          PYCODE
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/AutoSplit.app Payload/
-          zip -qr ScanFlow-0.4.14.ipa Payload
+          zip -qr ScanFlow-0.4.15.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ScanFlow-0.4.14-build33
-          path: ScanFlow-0.4.14.ipa
+          name: ScanFlow-0.4.15-build34
+          path: ScanFlow-0.4.15.ipa
           retention-days: 7

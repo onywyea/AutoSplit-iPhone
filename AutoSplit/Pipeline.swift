@@ -237,11 +237,11 @@ extension Imaging {
         }
         let turns=decision.turns
         let final=try finishPage(rotate(cropped,turns:turns),leaf:leaf,verified:crop.verified)
-        let image=final.image
+        let image = try PageTrim.apply(final.image, rect: leaf.outputTrim, turns: turns)
         var read=try recognize(image,fast:false,maxPixel:seekName ? 3400:2600)
         // Only retry the naming page. Raw paper can retain faint letters lost by
         // the visual filter; this OCR pass never changes the displayed image.
-        if seekName,NameFinder.candidates(read.0).isEmpty {
+        if seekName, leaf.outputTrim == nil,NameFinder.candidates(read.0).isEmpty {
             let raw=rotate(try perspective(original,quad:quad),turns:turns)
             let fallback=try recognize(raw,fast:false,correction:false,maxPixel:3400)
             if !fallback.0.isEmpty {
@@ -262,6 +262,7 @@ extension Imaging {
         let crop=try cropDecision(leaf,original:original)
         let prepared=try preparedImage(leaf,original:original,quad:crop.quad,verified:crop.verified)
         let final=try finishPage(rotate(prepared.image,turns:leaf.turns),leaf:leaf,verified:crop.verified)
-        return EdgeRepairResult(image:final.image,changed:prepared.changed+final.changed)
+        let image = try PageTrim.apply(final.image, rect: leaf.outputTrim, turns: leaf.turns)
+        return EdgeRepairResult(image:image,changed:prepared.changed+final.changed)
     }
 }

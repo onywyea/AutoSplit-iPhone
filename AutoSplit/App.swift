@@ -14,8 +14,13 @@ struct LibraryView:View {
     @State private var search=""
     @State private var selecting=false
     @State private var selected:Set<UUID>=[]
-    @State private var handingOff=false
-    @State private var exporting=false
+    private struct ExportRequest: Identifiable {
+        let id = UUID()
+        let ids: Set<UUID>
+        let chat: Bool
+        let folderName: String?
+    }
+    @State private var exportRequest: ExportRequest?
     @State private var deleting=false
     @State private var renaming:ScanDocument?
     @State private var folder="all"
@@ -51,8 +56,13 @@ struct LibraryView:View {
     private var presentedScreen:some View {
         libraryScreen
             .fileImporter(isPresented:$importing,allowedContentTypes:[.pdf,.image],allowsMultipleSelection:true, onCompletion:importResult)
-            .sheet(isPresented:$handingOff) {HandoffView(ids:selected)}
-            .sheet(isPresented:$exporting) {PDFExportSheet(ids:selected)}
+            .sheet(item: $exportRequest) { request in
+                if request.chat {
+                    HandoffView(ids: request.ids, batchName: request.folderName)
+                } else {
+                    PDFExportSheet(ids: request.ids, batchName: request.folderName)
+                }
+            }
             .sheet(item:$moveRequest) {request in FolderPicker(request:request,onMoved:{selected=[];selecting=false})}
             .sheet(isPresented:$managingFolders) {FolderManager()}
             .sheet(isPresented:$appearancePresented) {AppearanceSheet()}
@@ -84,10 +94,33 @@ struct LibraryView:View {
                 }
             }
             FolderShelf(selection:$folder,manage:{managingFolders=true})
+            if !selecting, let folder = store.folders.first(where: { $0.id == currentFolder }) {
+                folderActions(folder)
+            }
             documentSection
             }.padding(.horizontal,18).padding(.vertical,12)
         }
     }
+    private func folderActions(_ folder: ScanFolder) -> some View {
+        let ids = Set(store.documents.filter { $0.folderID == folder.id && !$0.pages.isEmpty }.map(\.id))
+        return Menu {
+            Button { presentExport(ids, chat: false, folderName: folder.name) } label: {
+                Label("Експорт і стиснення PDF", systemImage: "doc.zipper")
+            }
+            Button { presentExport(ids, chat: true, folderName: folder.name) } label: {
+                Label("Завдання для ChatGPT", systemImage: "sparkles")
+            }
+        } label: {
+            Label("Уся папка · \(ids.count)", systemImage: "folder.badge.gearshape")
+                .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+        }.disabled(ids.isEmpty || store.busy || store.savingPhotos > 0)
+    }
+
+    private func presentExport(_ ids: Set<UUID>, chat: Bool, folderName: String? = nil) {
+        guard !ids.isEmpty, !store.busy, store.savingPhotos == 0 else { return }
+        exportRequest = ExportRequest(ids: ids, chat: chat, folderName: folderName)
+    }
+
     @ViewBuilder private var documentSection:some View {
         if filtered.isEmpty {
             LibraryEmptyState(searching:!search.isEmpty)
@@ -110,8 +143,8 @@ struct LibraryView:View {
     @ViewBuilder private func documentMenu(_ document:ScanDocument)->some View {
         Button {beginMove([document.id])} label:{Label("Перемістити в папку",systemImage:"folder")}
         Button {renaming=document} label:{Label("Перейменувати",systemImage:"pencil")}
-        Button {selected=[document.id];exporting=true} label:{Label("Експорт / стиснення PDF",systemImage:"square.and.arrow.up")}
-        Button {selected=[document.id];handingOff=true} label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
+        Button {presentExport([document.id], chat: false)} label:{Label("Експорт / стиснення PDF",systemImage:"square.and.arrow.up")}
+        Button {presentExport([document.id], chat: true)} label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
         Button(role:.destructive) {selected=[document.id];deleting=true} label:{Label("Видалити скан",systemImage:"trash")}
     }
     @ToolbarContentBuilder private var libraryToolbar:some ToolbarContent {
@@ -124,7 +157,7 @@ struct LibraryView:View {
         }
     }
     private var errorPresented:Binding<Bool> {
-        Binding(get:{store.error != nil && !exporting && moveRequest==nil},set:{if !$0 {store.error=nil}})
+        Binding(get:{store.error != nil && exportRequest == nil && moveRequest==nil},set:{if !$0 {store.error=nil}})
     }
     private func openDocument(_ id:UUID) {
         if selecting {toggle(id)}else{path.append(id)}
@@ -168,8 +201,8 @@ struct LibraryView:View {
             Spacer(minLength:0)
             Button {beginMove(visibleSelection)} label:{Label("У папку (\(visibleSelection.count))",systemImage:"folder")}.scanSecondaryButton()
             Menu {
-                Button {exporting=true} label:{Label("Експорт / стиснення PDF",systemImage:"doc.zipper")}
-                Button {handingOff=true} label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
+                Button {presentExport(visibleSelection, chat: false)} label:{Label("Експорт / стиснення PDF",systemImage:"doc.zipper")}
+                Button {presentExport(visibleSelection, chat: true)} label:{Label("Завдання для ChatGPT",systemImage:"sparkles")}
             } label:{Label("Дії",systemImage:"ellipsis.circle").font(.subheadline.weight(.semibold))}.scanSecondaryButton()
         }.disabled(visibleSelection.isEmpty || store.busy || store.savingPhotos>0)
     }

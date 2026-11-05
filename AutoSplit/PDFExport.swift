@@ -28,6 +28,8 @@ struct PDFExportSheet:View {
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
     let ids:Set<UUID>
+    var batchName: String? = nil
+    @State private var archive = false
     @State private var compression:PDFCompression = .original
     @State private var sharing=false
     var count:Int {store.documents.filter{ids.contains($0.id)}.reduce(0){$0+$1.pages.count}}
@@ -42,6 +44,7 @@ struct PDFExportSheet:View {
         NavigationStack {
             Form {
                 Section {
+                    if let batchName { Label(batchName, systemImage: "folder") }
                     Label("\(ids.count) документів · \(count) стор.",systemImage:"doc.on.doc")
                     if fullFrameCount>0 {
                         Text("Без автоматичних меж: \(fullFrameCount) стор. Вони збережуться повним кадром; уточнювати кути перед експортом не обов’язково.").font(.caption).foregroundStyle(.secondary)
@@ -61,6 +64,11 @@ struct PDFExportSheet:View {
                         }.disabled(store.busy)
                     }
                 } header:{Text("Розмір PDF")} footer:{Text("Стиснення створює окремий PDF. Оригінали залишаються без змін. У стисненому PDF сторінки зберігаються як зображення.")}
+                Section {
+                    Toggle("Запакувати в ZIP", isOn: $archive).disabled(store.busy)
+                } footer: {
+                    Text("Готові файли зберігаються в Exports. ZIP понад 100 МБ розділяється між PDF.")
+                }
                 if !store.shareURLs.isEmpty {
                     Section("Готовий файл") {
                         Label(store.exportSummary,systemImage:"checkmark.circle.fill").foregroundStyle(Color.accent)
@@ -69,8 +77,8 @@ struct PDFExportSheet:View {
                 }
                 Section {
                     Button {
-                        Task {await store.export(ids,compression:compression)}
-                    } label:{HStack{Spacer();if store.busy {ProgressView()};Text(store.busy ? "Підготовка…":"Створити PDF").fontWeight(.semibold);Spacer()}}
+                        Task {await store.export(ids, compression: compression, archive: archive, batchName: batchName)}
+                    } label:{HStack{Spacer();if store.busy {ProgressView()};Text(store.busy ? "Підготовка…":(archive ? "Створити ZIP" : "Створити PDF")).fontWeight(.semibold);Spacer()}}
                     .disabled(store.busy || count==0)
                 }
                 if let error=store.error {Section{Text(error).font(.footnote).foregroundStyle(.red)}}
@@ -79,6 +87,7 @@ struct PDFExportSheet:View {
             .toolbar{ToolbarItem(placement:.cancellationAction){Button("Готово"){dismiss()}.disabled(store.busy)}}
             .sheet(isPresented:$sharing){ShareSheet(urls:store.shareURLs)}
             .onAppear{store.shareURLs=[];store.error=nil}
+            .onChange(of: archive) { _, _ in store.shareURLs = [] }
             .interactiveDismissDisabled(store.busy)
         }
     }
