@@ -1,14 +1,15 @@
 import SwiftUI
 
 struct LibraryBrandSection:View {
+    @Environment(\.scanTheme) private var theme
     var body:some View {
         HStack(alignment:.top,spacing:12) {
             VStack(alignment:.leading,spacing:5) {
                 Text("Ваші документи").font(.system(.title,design:.rounded,weight:.bold)).tracking(-0.7)
-                Text("Від кадру до готового PDF").font(.subheadline).foregroundStyle(.secondary)
+                if theme == .system { Text("Від кадру до готового PDF").font(.subheadline).foregroundStyle(.secondary) }
             }
             Spacer(minLength:0)
-            ScanMark()
+            if theme == .system { ScanMark() }
         }.padding(.vertical,6)
     }
 }
@@ -46,6 +47,7 @@ struct LibraryEmptyState:View {
     }
 }
 struct LibraryDocumentRow:View {
+    @Environment(\.scanTheme) private var theme
     let document:ScanDocument
     let selecting:Bool
     let selected:Bool
@@ -66,12 +68,13 @@ struct LibraryDocumentRow:View {
                     Text("Можна уточнити · \(pending)").font(.caption).foregroundStyle(.secondary)
                 }
             }.frame(maxWidth:.infinity,alignment:.leading)
-            Image(systemName:selecting ? (selected ? "checkmark.circle.fill":"circle"):"arrow.up.right")
+            Image(systemName:selecting ? (selected ? "checkmark.circle.fill":"circle"):(theme == .system ? "arrow.up.right" : "chevron.right"))
                 .font(selecting ? .title2:.subheadline.weight(.medium)).foregroundStyle(selecting ? Color.accent:Color.secondary)
                 .frame(width:28)
-        }.padding(15).scanCard(radius:24)
-            .overlay(RoundedRectangle(cornerRadius:24).stroke(selected && selecting ? Color.accent:.clear,lineWidth:2))
-            .contentShape(RoundedRectangle(cornerRadius:24))
+        }
+        .padding(theme == .system ? 15 : 8)
+        .modifier(LibraryRowSurface(selected: selected && selecting))
+        .contentShape(Rectangle())
     }
     private var thumbnail:some View {
         ZStack {

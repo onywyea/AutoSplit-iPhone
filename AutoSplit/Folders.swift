@@ -25,6 +25,7 @@ extension FolderColor {
 }
 extension ScanFolder {var tint:FolderColor {FolderColor(rawValue:colorID ?? "") ?? .blue}}
 struct FolderShelf:View {
+    @Environment(\.scanTheme) private var theme
     @EnvironmentObject var store:ScannerStore
     @Binding var selection:String
     var manage:()->Void
@@ -41,18 +42,20 @@ struct FolderShelf:View {
         }
     }
     private func chip(_ name:String,id:String,count:Int,tint:Color,icon:String)->some View {
-        Button {selection=id} label:{
+        let active = selection == id
+        let accent = theme == .system ? tint : Color.primary
+        return Button {selection=id} label:{
             HStack(spacing:7) {
-                Image(systemName:icon).foregroundStyle(tint)
+                Image(systemName:icon).foregroundStyle(accent)
                 Text(name).lineLimit(1)
-                Text("\(count)").font(.caption.bold().monospacedDigit()).padding(.horizontal,6).padding(.vertical,2).background(tint.opacity(0.17),in:Capsule())
+                Text("\(count)").font(.caption.bold().monospacedDigit()).padding(.horizontal,6).padding(.vertical,2).background(accent.opacity(0.10),in:Capsule())
             }.font(.subheadline.weight(.medium)).padding(.horizontal,12).padding(.vertical,10)
-                .background(tint.opacity(selection==id ? 0.23:0.07),in:Capsule())
-                .overlay(Capsule().stroke(tint.opacity(selection==id ? 0.8:0.22),lineWidth:1))
+                .modifier(ScanFolderSurface(active: active, accent: accent))
         }.buttonStyle(.plain).accessibilityLabel("\(name), сканів: \(count)").accessibilityAddTraits(selection==id ? .isSelected:[])
     }
 }
 struct FolderPicker:View {
+    @Environment(\.scanTheme) private var theme
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
     let request:ScanMoveRequest
@@ -76,7 +79,7 @@ struct FolderPicker:View {
                 Section("Папка призначення") {
                     destinationRow("Без папки",key:"unfiled",count:store.folderCount(nil),color:.secondary)
                     ForEach(store.folders) {folder in
-                        destinationRow(folder.name,key:folder.id.uuidString,count:store.folderCount(folder.id),color:folder.tint.color)
+                        destinationRow(folder.name,key:folder.id.uuidString,count:store.folderCount(folder.id),color:theme == .monochrome ? .primary : folder.tint.color)
                     }
                 }
                 Section("Нова папка") {
@@ -119,6 +122,7 @@ struct FolderPicker:View {
     }
 }
 struct FolderManager:View {
+    @Environment(\.scanTheme) private var theme
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
     @State private var name=""
@@ -135,7 +139,7 @@ struct FolderManager:View {
                 Section {
                     ForEach(store.folders) {folder in
                         HStack {
-                            Image(systemName:"folder.fill").foregroundStyle(folder.tint.color)
+                            Image(systemName:"folder.fill").foregroundStyle(theme == .monochrome ? Color.primary : folder.tint.color)
                             VStack(alignment:.leading,spacing:3) {
                                 Text(folder.name)
                                 Text("Сканів: \(store.folderCount(folder.id))").font(.caption).foregroundStyle(.secondary)

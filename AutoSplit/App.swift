@@ -6,12 +6,28 @@ struct ScanFlowApp:App {
     @StateObject private var store=ScannerStore()
     @AppStorage("scanflow.appearance") private var appearance="system"
     @AppStorage("scanflow.accent") private var accentID="coral"
-    var body:some Scene { WindowGroup { LibraryView().environmentObject(store).environment(\.locale,Locale(identifier:"uk_UA")).tint(ScanAccent(rawValue:accentID)?.color ?? ScanAccent.coral.color).accentColor(ScanAccent(rawValue:accentID)?.color ?? ScanAccent.coral.color).preferredColorScheme(appearance=="dark" ? .dark:(appearance=="light" ? .light:nil)) } }
+    private var theme: ScanTheme { ScanTheme(rawValue: appearance) ?? .system }
+    private var tint: Color {
+        theme == .system ? (ScanAccent(rawValue: accentID) ?? .coral).color : .primary
+    }
+    var body: some Scene {
+        WindowGroup {
+            LibraryView()
+                .environmentObject(store)
+                .environment(\.locale, Locale(identifier: "uk_UA"))
+                .environment(\.scanTheme, theme)
+                .tint(tint)
+                .accentColor(tint)
+                .preferredColorScheme(theme.scheme)
+        }
+    }
 }
 struct LibraryView:View {
     @EnvironmentObject var store:ScannerStore
     @State private var path:[UUID]=[]
     @State private var search=""
+    @FocusState private var searchFocused: Bool
+    @Environment(\.scanTheme) private var theme
     @State private var selecting=false
     @State private var selected:Set<UUID>=[]
     private struct ExportRequest: Identifiable {
@@ -69,12 +85,11 @@ struct LibraryView:View {
             .sheet(item:$renaming) {document in NameSheet(documentID:document.id)}
     }
     private var libraryScreen:some View {
-        libraryList
+        searchableLibrary
             .background(ScanBackdrop())
             .navigationTitle("ScanFlow")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden,for:.navigationBar)
-            .searchable(text:$search,prompt:"ПІБ або назва документа")
             .toolbar {libraryToolbar}
             .safeAreaInset(edge:.bottom) {bottomBar}
             .navigationDestination(for:UUID.self) {id in DocumentView(documentID:id,startCamera:newCapture==id)}
@@ -84,11 +99,38 @@ struct LibraryView:View {
             .onChange(of:path) {previous,ids in trackPath(previous,ids)}
             .onChange(of:store.documents.map(\.id)) {_,ids in selected.formIntersection(Set(ids))}
     }
+    @ViewBuilder private var searchableLibrary: some View {
+        if theme == .system {
+            libraryList.searchable(text: $search, prompt: "ПІБ або назва документа")
+        } else {
+            libraryList
+        }
+    }
+
+    private var librarySearch: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+            TextField("Пошук документів", text: $search)
+                .focused($searchFocused)
+                .submitLabel(.search)
+                .onSubmit { searchFocused = false }
+            if !search.isEmpty {
+                Button { search = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).accessibilityLabel("Очистити пошук")
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 44)
+        .background(Color.primary.opacity(0.07), in: Capsule())
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.13), lineWidth: 0.6).allowsHitTesting(false))
+    }
+
     private var libraryList:some View {
         ScrollView {
             LazyVStack(alignment:.leading,spacing:14) {
+            if !selecting && (search.isEmpty || theme != .system) { LibraryBrandSection() }
+            if theme != .system { librarySearch }
             if !selecting && search.isEmpty {
-                LibraryBrandSection()
                 if folder=="all",let document=resume {
                     LibraryResumeSection(document:document,disabled:store.busy) {path.append(document.id)}
                 }
@@ -192,7 +234,7 @@ struct LibraryView:View {
                 .scanSecondaryButton().accessibilityLabel("Імпорт фото або PDF").disabled(store.busy)
             Button {let id=store.newDocument(folderID:currentFolder);newCapture=id;path.append(id)} label:{
                 Label("Новий скан",systemImage:"camera.fill").font(.headline).frame(maxWidth:.infinity,minHeight:44)
-            }.scanPrimaryButton().disabled(store.busy)
+            }.modifier(ScanCaptureButton()).disabled(store.busy)
         }
     }
     private var selectionDock:some View {

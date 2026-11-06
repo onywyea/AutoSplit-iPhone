@@ -2,8 +2,31 @@ import SwiftUI
 import UIKit
 
 #if !compiler(>=6.2)
-#error("ScanFlow 0.4.11 needs Xcode 26+. Upload .github/workflows/build.yml from this update and start a NEW Run workflow.")
+#error("ScanFlow needs Xcode 26+. Upload .github/workflows/build.yml from this update and start a NEW Run workflow.")
 #endif
+
+enum ScanTheme: String {
+    case system, light, dark, monochrome
+
+    var scheme: ColorScheme? {
+        switch self {
+        case .system: return nil
+        case .light: return .light
+        case .dark, .monochrome: return .dark
+        }
+    }
+}
+
+private struct ScanThemeKey: EnvironmentKey {
+    static let defaultValue = ScanTheme.system
+}
+
+extension EnvironmentValues {
+    var scanTheme: ScanTheme {
+        get { self[ScanThemeKey.self] }
+        set { self[ScanThemeKey.self] = newValue }
+    }
+}
 
 extension Color {
     static let canvas=Color(uiColor:UIColor {trait in trait.userInterfaceStyle == .dark ? UIColor(red:0.055,green:0.065,blue:0.080,alpha:1):UIColor(red:0.970,green:0.956,blue:0.936,alpha:1)})
@@ -14,8 +37,24 @@ extension Color {
     static let scanOutline=Color.primary.opacity(0.09)
 }
 struct ScanBackdrop:View {
-    var body:some View {
-        Color.canvas.overlay(RadialGradient(colors:[Color.accent.opacity(0.10),.clear],center:.topTrailing,startRadius:0,endRadius:330)).ignoresSafeArea().allowsHitTesting(false)
+    @Environment(\.scanTheme) private var theme
+    var body: some View {
+        background.ignoresSafeArea().allowsHitTesting(false)
+    }
+
+    @ViewBuilder private var background: some View {
+        switch theme {
+        case .system:
+            Color.canvas.overlay(RadialGradient(colors: [Color.accent.opacity(0.10), .clear],
+                                                center: .topTrailing, startRadius: 0, endRadius: 330))
+        case .dark:
+            LinearGradient(colors: [Color(white: 0.10), Color(white: 0.045)], startPoint: .top, endPoint: .bottom)
+        case .light:
+            LinearGradient(colors: [Color(red: 0.98, green: 0.97, blue: 0.96), Color(white: 0.94)],
+                           startPoint: .top, endPoint: .bottom)
+        case .monochrome:
+            LinearGradient(colors: [Color(white: 0.34), Color(white: 0.19)], startPoint: .top, endPoint: .bottom)
+        }
     }
 }
 struct ScanCard:ViewModifier {
@@ -27,10 +66,11 @@ struct ScanCard:ViewModifier {
 }
 struct ScanPillStyle:ButtonStyle {
     let prominent:Bool
+    @Environment(\.scanTheme) private var theme
     @Environment(\.isEnabled) private var enabled
     func makeBody(configuration:Configuration)->some View {
         configuration.label.font(.subheadline.weight(.semibold)).padding(.horizontal,16).frame(minHeight:44)
-            .foregroundStyle(prominent ? Color.white:Color.primary)
+            .foregroundStyle(prominent && theme == .system ? Color.white : (prominent ? Color.canvas : Color.primary))
             .background(prominent ? Color.scanAction:Color.card,in:Capsule())
             .overlay(Capsule().stroke(prominent ? Color.white.opacity(0.18):Color.scanOutline,lineWidth:1))
             .opacity(enabled ? (configuration.isPressed ? 0.75:1):0.4)
@@ -38,12 +78,13 @@ struct ScanPillStyle:ButtonStyle {
 }
 struct ScanButtonModifier:ViewModifier {
     let prominent:Bool
+    @Environment(\.scanTheme) private var theme
     @Environment(\.accessibilityReduceTransparency) private var reduced
     @ViewBuilder func body(content:Content)->some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0,*),!reduced {
-            if prominent {content.buttonStyle(.glassProminent).buttonBorderShape(.capsule).tint(Color.scanAction).foregroundStyle(.white).controlSize(.regular)}
-            else {content.buttonStyle(.glass).buttonBorderShape(.capsule).tint(Color.primary).controlSize(.regular)}
+            if prominent && theme == .system {content.buttonStyle(.glassProminent).buttonBorderShape(.capsule).tint(Color.scanAction).foregroundStyle(.white).controlSize(.regular)}
+            else {content.buttonStyle(.glass).buttonBorderShape(.capsule).tint(theme == .system ? Color.scanAction : Color.primary).controlSize(.regular)}
         } else {content.buttonStyle(ScanPillStyle(prominent:prominent))}
         #else
         content.buttonStyle(ScanPillStyle(prominent:prominent))
@@ -51,11 +92,12 @@ struct ScanButtonModifier:ViewModifier {
     }
 }
 struct ScanControls<Content:View>:View {
+    @Environment(\.accessibilityReduceTransparency) private var reduced
     let content:Content
     init(@ViewBuilder content:()->Content) {self.content=content()}
     @ViewBuilder var body:some View {
         #if compiler(>=6.2)
-        if #available(iOS 26.0,*) {GlassEffectContainer(spacing:12) {content}}
+        if #available(iOS 26.0,*), !reduced {GlassEffectContainer(spacing:12) {content}}
         else {content}
         #else
         content
@@ -104,20 +146,28 @@ struct AppearanceSheet:View {
                         Text("Як в iPhone").tag("system")
                         Text("Світла · теплий папір").tag("light")
                         Text("Темна · графіт").tag("dark")
+                        Text("Монохром · срібло").tag("monochrome")
                     }.pickerStyle(.inline)
                 }
-                Section("Акцентний колір") {
-                    Picker("Колір кнопок",selection:$accentID) {
-                        ForEach(ScanAccent.allCases) {accent in
-                            Label {Text(accent.title)} icon:{Image(systemName:"circle.fill").foregroundStyle(accent.color)}.tag(accent.rawValue)
-                        }
-                    }.pickerStyle(.inline)
+                if appearance == "system" {
+                    Section("Акцентний колір") {
+                        Picker("Колір кнопок",selection:$accentID) {
+                            ForEach(ScanAccent.allCases) {accent in
+                                Label {Text(accent.title)} icon:{Image(systemName:"circle.fill").foregroundStyle(accent.color)}.tag(accent.rawValue)
+                            }
+                        }.pickerStyle(.inline)
+                    }
                 }
                 Section("Ефект панелей") {
                     Label(effect,systemImage:"circle.lefthalf.filled")
                     Text("Документ не покривається склом. Пониження прозорості в налаштуваннях iPhone вимикає прозорі ефекти.").font(.caption).foregroundStyle(.secondary)
                 }
-                Section("Версія") {Text("ScanFlow 0.4.11 · 30")}
+                Section("Версія") {
+                    let info = Bundle.main.infoDictionary
+                    let version = info?["CFBundleShortVersionString"] as? String ?? ""
+                    let build = info?["CFBundleVersion"] as? String ?? ""
+                    Text("ScanFlow \(version) · \(build)")
+                }
             }.navigationTitle("Вигляд").navigationBarTitleDisplayMode(.inline)
                 .toolbar {ToolbarItem(placement:.confirmationAction) {Button("Готово") {dismiss()}}}
         }.tint(.accent)
