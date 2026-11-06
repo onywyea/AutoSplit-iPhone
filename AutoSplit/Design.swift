@@ -88,10 +88,10 @@ struct ScanFolderSurface: ViewModifier {
         } else if active && !reduced {
             if #available(iOS 26.0, *) {
                 content.glassEffect(.regular.interactive(), in: Capsule())
-                    .modifier(ScanSpectralRim(strength: 0.55))
+                    .modifier(ScanSpectralRim(strength: 0.82))
             } else {
                 content.background(.regularMaterial, in: Capsule())
-                    .modifier(ScanSpectralRim(strength: 0.55))
+                    .modifier(ScanSpectralRim(strength: 0.82))
             }
         } else {
             content.background(Color.primary.opacity(active ? 0.18 : 0.07), in: Capsule())
@@ -109,10 +109,11 @@ private struct ScanSpectralRim: ViewModifier {
         content.overlay {
             if theme != .monochrome && enabled {
                 ZStack {
-                    arc(Color(red: 0.72, green: 0.53, blue: 1), start: 0, peak: 0.10, end: 0.25)
-                        .offset(x: -0.45)
-                    arc(Color(red: 0.32, green: 0.83, blue: 0.93), start: 0.40, peak: 0.52, end: 0.66)
-                        .offset(x: 0.45)
+                    Capsule()
+                        .strokeBorder(spectrum(shift: 0), lineWidth: 1.6)
+                    Capsule()
+                        .inset(by: 1.8)
+                        .strokeBorder(spectrum(shift: 0.035, reversed: true), lineWidth: 1.05)
                 }
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
@@ -120,23 +121,29 @@ private struct ScanSpectralRim: ViewModifier {
         }
     }
 
-    private func arc(_ color: Color, start: CGFloat, peak: CGFloat, end: CGFloat) -> some View {
-        Capsule().strokeBorder(
-            AngularGradient(stops: [
-                .init(color: .clear, location: start),
-                .init(color: color.opacity(intensity), location: peak),
-                .init(color: .clear, location: end)
-            ], center: .center),
-            lineWidth: 1.1
-        )
+    private func spectrum(shift: CGFloat, reversed: Bool = false) -> AngularGradient {
+        let cyan = scheme == .dark ? Color(red: 0.32, green: 0.88, blue: 1) : Color(red: 0.08, green: 0.53, blue: 0.76)
+        let violet = scheme == .dark ? Color(red: 0.88, green: 0.56, blue: 1) : Color(red: 0.68, green: 0.29, blue: 0.83)
+        let opacity = strength * (reversed ? 0.54 : 0.86)
+        let first = reversed ? cyan : violet
+        let second = reversed ? violet : cyan
+        return AngularGradient(stops: [
+            .init(color: .clear, location: 0),
+            .init(color: first.opacity(opacity), location: 0.12 + shift),
+            .init(color: .clear, location: 0.31 + shift),
+            .init(color: .clear, location: 0.42 + shift),
+            .init(color: second.opacity(opacity), location: 0.58 + shift),
+            .init(color: .clear, location: 0.81 + shift),
+            .init(color: .clear, location: 1)
+        ], center: .center)
     }
-
-    private var intensity: Double { strength * (scheme == .dark ? 0.65 : 0.48) }
 }
 
 struct LibraryRowSurface: ViewModifier {
     let selected: Bool
     @Environment(\.scanTheme) private var theme
+
+    @Environment(\.displayScale) private var displayScale
 
     @ViewBuilder func body(content: Content) -> some View {
         if theme == .system {
@@ -145,7 +152,14 @@ struct LibraryRowSurface: ViewModifier {
         } else {
             content
                 .background(selected ? Color.primary.opacity(0.12) : .clear, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(alignment: .bottom) { Divider().allowsHitTesting(false) }
+                .overlay(alignment: .bottom) {
+                    Rectangle()
+                        .fill(Color.primary.opacity(0.10))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 1 / displayScale)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
         }
     }
 }
