@@ -131,6 +131,7 @@ struct AppearanceSheet:View {
     @Environment(\.accessibilityReduceTransparency) private var reduced
     @AppStorage("scanflow.appearance") private var appearance="system"
     @AppStorage("scanflow.accent") private var accentID="coral"
+    @AppStorage("scanflow.studio") private var studio = true
     private var effect:String {
         if reduced {return "Непрозорий · системна доступність"}
         #if compiler(>=6.2)
@@ -142,14 +143,15 @@ struct AppearanceSheet:View {
         NavigationStack {
             Form {
                 Section("Оформлення") {
-                    Picker("Тема",selection:$appearance) {
+                    Toggle("Новий вигляд ScanFlow", isOn: $studio)
+                    Picker("Тема класичного вигляду",selection:$appearance) {
                         Text("Як в iPhone").tag("system")
                         Text("Світла · теплий папір").tag("light")
                         Text("Темна · графіт").tag("dark")
                         Text("Монохром · срібло").tag("monochrome")
-                    }.pickerStyle(.inline)
+                    }.pickerStyle(.inline).disabled(studio)
                 }
-                if appearance == "system" {
+                if !studio && appearance == "system" {
                     Section("Акцентний колір") {
                         Picker("Колір кнопок",selection:$accentID) {
                             ForEach(ScanAccent.allCases) {accent in

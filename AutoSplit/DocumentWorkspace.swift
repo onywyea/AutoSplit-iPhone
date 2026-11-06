@@ -5,8 +5,10 @@ import PhotosUI
 struct DocumentView:View {
     @EnvironmentObject var store:ScannerStore
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("scanflow.studio") private var studio = true
     let documentID:UUID
     var startCamera=false
+    var studioNavigate: ((StudioTab) -> Void)? = nil
     @State private var didStartCamera=false
     @State private var capturing=false
     @State private var importing=false
@@ -70,7 +72,8 @@ struct DocumentView:View {
     }
     private var navigationScreen:some View {
         workspaceContent
-            .navigationTitle("Документ").navigationBarTitleDisplayMode(.inline)
+            .navigationTitle(studio ? (doc?.title ?? "Комплект") : "Документ").navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(studio ? .hidden : .automatic, for: .navigationBar)
             .toolbar {workspaceToolbar}
             .task(id:documentID) {await openDocument()}
             .onChange(of:pages.map(\.id)) {_,ids in selected.formIntersection(Set(ids))}
@@ -79,13 +82,32 @@ struct DocumentView:View {
         if let document=doc {
             VStack(spacing:0) {
                 if store.busy {workingBar}
-                if ordering {orderList} else {pageGrid(document)}
-            }.background(ScanBackdrop()).safeAreaInset(edge:.bottom) {actionBar}
+                if ordering {orderList}
+                else if studio && !selecting {studioDocument}
+                else {pageGrid(document)}
+            }.background {
+                if studio && !ordering && !selecting {
+                    StudioBackdrop(palette: !pages.isEmpty && pages.allSatisfy { $0.reviewed == true } ? .green : .teal)
+                } else {
+                    ScanBackdrop()
+                }
+            }.safeAreaInset(edge: .bottom) {
+                if studio && !ordering && !selecting && !pages.isEmpty && removed.isEmpty,
+                   let studioNavigate {
+                    StudioDock(selection: .sets, scanDisabled: blocked, select: studioNavigate)
+                } else {
+                    actionBar
+                }
+            }
         } else {ContentUnavailableView("Скан недоступний",systemImage:"doc")}
     }
     @ToolbarContentBuilder private var workspaceToolbar:some ToolbarContent {
         ToolbarItem(placement:.topBarTrailing) {
-            Button(selecting ? "Готово":"Вибрати") {selecting.toggle();selected=[];ordering=false}.disabled(blocked || pages.isEmpty)
+            if studio && !selecting && !ordering {
+                Button("Експорт PDF") {exporting = true}.disabled(blocked || pages.isEmpty)
+            } else {
+                Button(selecting ? "Готово":"Вибрати") {selecting.toggle();selected=[];ordering=false}.disabled(blocked || pages.isEmpty)
+            }
         }
         ToolbarItem(placement:.topBarTrailing) {documentMenu}
     }
@@ -108,6 +130,75 @@ struct DocumentView:View {
         importingPhotos=true
         Task {await store.importGallery(items,to:documentID);photoItems=[];importingPhotos=false;await store.analyze(documentID)}
     }
+    private var studioDocument: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if pages.isEmpty {
+                    ContentUnavailableView("Додайте першу сторінку", systemImage: "doc.viewfinder",
+                                           description: Text("Скануйте серією або імпортуйте фото та PDF."))
+                } else {
+                    ScrollView(.horizontal) {
+                        LazyHStack(spacing: 12) {
+                            ForEach(pages) { page in
+                                NavigationLink {
+                                    PageBrowser(documentID: documentID, initialPageID: page.id)
+                                } label: {
+                                    studioPageTile(page)
+                                }.buttonStyle(.plain)
+                            }
+                        }.padding(.horizontal, 18)
+                    }.scrollIndicators(.hidden)
+                    Text("Відомості про комплект").font(.title2.bold()).padding(.horizontal, 18)
+                    studioDetails
+                        .padding(.horizontal, 18)
+                }
+            }.padding(.vertical, 12)
+        }.foregroundStyle(.white)
+    }
+
+    private func studioPageTile(_ page: Leaf) -> some View {
+        VStack(spacing: 9) {
+            Thumb(file: page.output)
+                .frame(width: 96, height: 132)
+                .background(.white, in: RoundedRectangle(cornerRadius: 5))
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+            Text("Сторінка \((pages.firstIndex { $0.id == page.id } ?? 0) + 1)")
+                .font(.subheadline.weight(.semibold))
+            PageReviewBadge(page: page)
+                .lineLimit(2)
+                .frame(height: 32)
+        }
+        .frame(width: 147)
+        .padding(.vertical, 13)
+        .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 22))
+        .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.20), lineWidth: 0.7))
+    }
+
+    private var studioDetails: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            studioDetailRow("Сторінок: \(pages.count)", icon: "document.on.document")
+            Divider()
+            studioDetailRow("Розпізнано: \(pages.filter(\.ocrReady).count) із \(pages.count)", icon: "text.viewfinder")
+            Divider()
+            studioDetailRow("На перевірку: \(issues.count)", icon: "checkmark.circle")
+            Divider()
+            Button { exporting = true } label: {
+                Label("Експорт PDF", systemImage: "arrow.up.right")
+                    .font(.headline).frame(maxWidth: .infinity, minHeight: 52)
+            }.buttonStyle(.plain).disabled(blocked)
+        }
+        .padding(.horizontal, 16)
+        .background(.white.opacity(0.10), in: RoundedRectangle(cornerRadius: 25))
+        .overlay(RoundedRectangle(cornerRadius: 25).strokeBorder(.white.opacity(0.20), lineWidth: 0.7))
+    }
+
+    private func studioDetailRow(_ title: String, icon: String) -> some View {
+        HStack(spacing: 13) {
+            Image(systemName: icon).font(.title3).frame(width: 30)
+            Text(title).font(.subheadline)
+        }.frame(minHeight: 52)
+    }
+
     private func pageGrid(_ document:ScanDocument)->some View {
         ScrollView {
             VStack(alignment:.leading,spacing:18) {
@@ -207,6 +298,17 @@ struct DocumentView:View {
     }
     private var documentMenu:some View {
         Menu {
+            if studio && !selecting && !ordering {
+                Menu("Додати сторінки", systemImage: "plus") {
+                    Button("Камера", systemImage: "camera") { capturing = true }
+                    Button("Фото з галереї", systemImage: "photo.on.rectangle") { photoPicker = true }
+                    Button("PDF або фото з Файлів", systemImage: "folder") { importing = true }
+                }
+                Button("Вибрати сторінки", systemImage: "checkmark.circle") {
+                    selecting = true
+                    selected = []
+                }.disabled(pages.isEmpty)
+            }
             Button {exporting=true} label:{Label("Розмір / стиснення PDF",systemImage:"doc.zipper")}
             Button {styleTargets=nil;styling=true} label:{Label("Стиль усіх сторінок",systemImage:"slider.horizontal.3")}
             Button(ordering ? "Завершити порядок":"Змінити порядок",systemImage:"arrow.up.arrow.down") {ordering.toggle();selecting=false;selected=[]}

@@ -6,6 +6,7 @@ struct ScanFlowApp:App {
     @StateObject private var store=ScannerStore()
     @AppStorage("scanflow.appearance") private var appearance="system"
     @AppStorage("scanflow.accent") private var accentID="coral"
+    @AppStorage("scanflow.studio") private var studio = true
     private var theme: ScanTheme { ScanTheme(rawValue: appearance) ?? .system }
     private var tint: Color {
         theme == .system ? (ScanAccent(rawValue: accentID) ?? .coral).color : .primary
@@ -18,7 +19,7 @@ struct ScanFlowApp:App {
                 .environment(\.scanTheme, theme)
                 .tint(tint)
                 .accentColor(tint)
-                .preferredColorScheme(theme.scheme)
+                .preferredColorScheme(studio ? .dark : theme.scheme)
         }
     }
 }
@@ -26,6 +27,8 @@ struct LibraryView:View {
     @EnvironmentObject var store:ScannerStore
     @State private var path:[UUID]=[]
     @State private var search=""
+    @AppStorage("scanflow.studio") private var studio = true
+    @State private var studioTab = StudioTab.home
     @FocusState private var searchFocused: Bool
     @Environment(\.scanTheme) private var theme
     @State private var selecting=false
@@ -85,20 +88,111 @@ struct LibraryView:View {
             .sheet(item:$renaming) {document in NameSheet(documentID:document.id)}
     }
     private var libraryScreen:some View {
-        searchableLibrary
-            .background(ScanBackdrop())
-            .navigationTitle("ScanFlow")
+        libraryRoot
+            .navigationTitle(studio ? studioTab.title : "ScanFlow")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(.hidden,for:.navigationBar)
             .toolbar {libraryToolbar}
             .safeAreaInset(edge:.bottom) {bottomBar}
-            .navigationDestination(for:UUID.self) {id in DocumentView(documentID:id,startCamera:newCapture==id)}
+            .navigationDestination(for: UUID.self) { id in
+                DocumentView(documentID: id, startCamera: newCapture == id, studioNavigate: navigateFromDocument)
+            }
             .onChange(of:folder) {_,_ in selected=[]}
             .onChange(of:search) {_,_ in selected=[]}
             .onChange(of:store.folders.map(\.id)) {_,ids in if let id=currentFolder,!ids.contains(id) {folder="all"}}
             .onChange(of:path) {previous,ids in trackPath(previous,ids)}
             .onChange(of:store.documents.map(\.id)) {_,ids in selected.formIntersection(Set(ids))}
     }
+    @ViewBuilder private var libraryRoot: some View {
+        if studio {
+            studioContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(StudioBackdrop(palette: studioTab == .home ? .home : .teal))
+                .foregroundStyle(.white)
+                .environment(\.scanTheme, .dark)
+                .tint(.white)
+        } else {
+            searchableLibrary.background(ScanBackdrop())
+        }
+    }
+
+    @ViewBuilder private var studioContent: some View {
+        switch studioTab {
+        case .home: studioHome
+        case .archive: StudioArchive()
+        default: libraryList
+        }
+    }
+
+    private var studioHome: some View {
+        let recent = Array(store.documents.filter { !$0.pages.isEmpty }.prefix(10))
+        let latest = resume ?? recent.first
+        return ScrollView {
+            StudioHero(document: latest, blocked: store.busy || store.savingPhotos > 0) {
+                if let latest { openDocument(latest.id) } else { startScan() }
+            }
+            VStack(alignment: .leading, spacing: 18) {
+                if !recent.isEmpty {
+                    Text("Недавні скани").font(.title2.bold()).padding(.horizontal, 18)
+                    ScrollView(.horizontal) {
+                        HStack(alignment: .top, spacing: 12) {
+                            ForEach(recent) { document in
+                                Button { openDocument(document.id) } label: {
+                                    VStack(spacing: 7) {
+                                        Thumb(file: document.pages.first?.output)
+                                            .frame(width: 77, height: 86)
+                                            .background(.white, in: RoundedRectangle(cornerRadius: 16))
+                                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                                        Text(document.title).font(.caption).lineLimit(2).frame(width: 77)
+                                    }.accessibilityElement(children: .combine)
+                                }.buttonStyle(.plain).disabled(store.busy || store.savingPhotos > 0)
+                            }
+                        }.padding(.horizontal, 18)
+                    }.scrollIndicators(.hidden)
+                }
+                Button { selectTab(.sets) } label: {
+                    HStack {
+                        Label("Усі комплекти", systemImage: "square.stack.3d.up.fill")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }.font(.headline).frame(minHeight: 48)
+                }.buttonStyle(.plain).padding(.horizontal, 18)
+            }.padding(.bottom, 20)
+        }
+    }
+
+    private func selectTab(_ tab: StudioTab) {
+        if tab == .scan { startScan(); return }
+        guard tab != studioTab else {
+            if tab == .search { searchFocused = true }
+            return
+        }
+        selecting = false
+        selected = []
+        search = ""
+        searchFocused = false
+        if tab == .search { folder = "all" }
+        studioTab = tab
+    }
+
+    private func navigateFromDocument(_ tab: StudioTab) {
+        if tab == .scan {
+            startScan(replacingPath: true)
+        } else {
+            path = []
+            selectTab(tab)
+        }
+    }
+
+    private func startScan() { startScan(replacingPath: false) }
+
+    private func startScan(replacingPath: Bool) {
+        guard !store.busy, store.savingPhotos == 0 else { return }
+        let id = store.newDocument(folderID: !studio || studioTab == .sets ? currentFolder : nil)
+        newCapture = id
+        if replacingPath { path = [id] } else { path.append(id) }
+    }
+
     @ViewBuilder private var searchableLibrary: some View {
         if theme == .system {
             libraryList.searchable(text: $search, prompt: "ПІБ або назва документа")
@@ -128,9 +222,11 @@ struct LibraryView:View {
     private var libraryList:some View {
         ScrollView {
             LazyVStack(alignment:.leading,spacing:14) {
-            if !selecting && (search.isEmpty || theme != .system) { LibraryBrandSection() }
-            if theme != .system { librarySearch }
-            if !selecting && search.isEmpty {
+            if !studio && !selecting && (search.isEmpty || theme != .system) { LibraryBrandSection() }
+            if studio ? studioTab == .search : theme != .system {
+                librarySearch.onAppear { if studio && studioTab == .search { searchFocused = true } }
+            }
+            if !studio && !selecting && search.isEmpty {
                 if folder=="all",let document=resume {
                     LibraryResumeSection(document:document,disabled:store.busy) {path.append(document.id)}
                 }
@@ -191,7 +287,12 @@ struct LibraryView:View {
     }
     @ToolbarContentBuilder private var libraryToolbar:some ToolbarContent {
         ToolbarItem(placement:.topBarTrailing) {
-            Button(selecting ? "Готово":"Вибрати") {selecting.toggle();selected=[]}.disabled(store.busy || store.documents.isEmpty)
+            if studio && studioTab == .home {
+                Button { importing = true } label: { Image(systemName: "square.and.arrow.down") }
+                    .accessibilityLabel("Імпорт PDF або фото").disabled(store.busy)
+            } else if !studio || studioTab != .archive {
+                Button(selecting ? "Готово":"Вибрати") {selecting.toggle();selected=[]}.disabled(store.busy || store.documents.isEmpty)
+            }
         }
         ToolbarItem(placement:.topBarLeading) {
             if selecting {Button("Усі") {selected=Set(filtered.map(\.id))}.disabled(store.busy)}
@@ -212,7 +313,7 @@ struct LibraryView:View {
         switch result {
         case .success(let urls):
             guard !urls.isEmpty else {return}
-            let id=store.newDocument(folderID:currentFolder);path.append(id)
+            let id=store.newDocument(folderID: !studio || studioTab == .sets ? currentFolder : nil);path.append(id)
             Task {await store.importFiles(urls,to:id);await store.analyze(id)}
         case .failure(let error):store.error=error.localizedDescription
         }
@@ -224,15 +325,18 @@ struct LibraryView:View {
         ScanControls {
             VStack(spacing:10) {
                 if store.busy {HStack {ProgressView();Text(store.status).font(.caption).lineLimit(1)}}
-                if selecting {selectionDock}else{captureDock}
-            }.padding(.horizontal,18).padding(.vertical,10)
+                if selecting {selectionDock}
+                else if studio {
+                    StudioDock(selection: studioTab, scanDisabled: store.busy || store.savingPhotos > 0, select: selectTab)
+                } else {captureDock}
+            }.padding(.horizontal, studio && !selecting ? 0 : 18).padding(.vertical, studio && !selecting ? 0 : 10)
         }
     }
     private var captureDock:some View {
         HStack(spacing:12) {
             Button {importing=true} label:{Image(systemName:"square.and.arrow.down").frame(width:34,height:44)}
                 .scanSecondaryButton().accessibilityLabel("Імпорт фото або PDF").disabled(store.busy)
-            Button {let id=store.newDocument(folderID:currentFolder);newCapture=id;path.append(id)} label:{
+            Button(action: startScan) {
                 Label("Новий скан",systemImage:"camera.fill").font(.headline).frame(maxWidth:.infinity,minHeight:44)
             }.modifier(ScanCaptureButton()).disabled(store.busy)
         }
