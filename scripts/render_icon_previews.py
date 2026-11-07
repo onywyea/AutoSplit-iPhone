@@ -10,14 +10,16 @@ import argparse
 import subprocess
 import tempfile
 import shutil
+import json
+from concurrent.futures import ThreadPoolExecutor
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--platform', choices=['iphoneos', 'iphonesimulator'], required=True)
 parser.add_argument('--app', type=Path, required=True)
 args = parser.parse_args()
 assert args.app.is_dir(), args.app
-names = ['ScanFlowIcon', 'ScanFlowPearl', 'ScanFlowGraphite', 'ScanFlowClassic']
-for name in names:
+names = ['ScanFlowIcon', 'ScanFlowPearl', 'ScanFlowGraphite', 'ScanFlowClassic'] + [i['name'] for i in json.loads(Path('AutoSplit/IconCollection.json').read_text())]
+def render(name):
     with tempfile.TemporaryDirectory(prefix='scanflow-icon-') as folder:
         out = Path(folder)
         command = ['xcrun', '--sdk', args.platform, 'actool',
@@ -37,3 +39,6 @@ for name in names:
         shutil.copyfile(candidates[-1], destination)
         assert destination.stat().st_size > 1000, destination
         print(f'{name}: native preview, {destination.stat().st_size} bytes', flush=True)
+
+with ThreadPoolExecutor(max_workers=2) as workers:
+    list(workers.map(render, names))

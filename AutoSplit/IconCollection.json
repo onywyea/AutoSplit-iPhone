@@ -1,0 +1,52 @@
+[
+  {
+    "case": "prism",
+    "name": "ScanFlowPrism",
+    "title": "Призма"
+  },
+  {
+    "case": "stack",
+    "name": "ScanFlowStack",
+    "title": "Шари"
+  },
+  {
+    "case": "lens",
+    "name": "ScanFlowLens",
+    "title": "Об’єктив"
+  },
+  {
+    "case": "ribbon",
+    "name": "ScanFlowRibbon",
+    "title": "Потік S"
+  },
+  {
+    "case": "portal",
+    "name": "ScanFlowPortal",
+    "title": "Портал"
+  },
+  {
+    "case": "folio",
+    "name": "ScanFlowFolio",
+    "title": "Фоліо"
+  },
+  {
+    "case": "orbit",
+    "name": "ScanFlowOrbit",
+    "title": "Орбіта"
+  },
+  {
+    "case": "wave",
+    "name": "ScanFlowWave",
+    "title": "Хвиля"
+  },
+  {
+    "case": "archive",
+    "name": "ScanFlowArchive",
+    "title": "Архів"
+  },
+  {
+    "case": "facet",
+    "name": "ScanFlowFacet",
+    "title": "Кристал"
+  }
+]

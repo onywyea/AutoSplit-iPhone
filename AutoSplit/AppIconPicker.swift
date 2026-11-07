@@ -2,10 +2,21 @@ import SwiftUI
 import UIKit
 
 enum ScanAppIcon: String, CaseIterable, Identifiable {
+    case prism, stack, lens, ribbon, portal, folio, orbit, wave, archive, facet
     case glass, pearl, graphite, classic
     var id: String { rawValue }
     var name: String? {
         switch self {
+        case .prism: return "ScanFlowPrism"
+        case .stack: return "ScanFlowStack"
+        case .lens: return "ScanFlowLens"
+        case .ribbon: return "ScanFlowRibbon"
+        case .portal: return "ScanFlowPortal"
+        case .folio: return "ScanFlowFolio"
+        case .orbit: return "ScanFlowOrbit"
+        case .wave: return "ScanFlowWave"
+        case .archive: return "ScanFlowArchive"
+        case .facet: return "ScanFlowFacet"
         case .glass: return nil
         case .pearl: return "ScanFlowPearl"
         case .graphite: return "ScanFlowGraphite"
@@ -14,6 +25,16 @@ enum ScanAppIcon: String, CaseIterable, Identifiable {
     }
     var title: String {
         switch self {
+        case .prism: return "Призма"
+        case .stack: return "Шари"
+        case .lens: return "Об’єктив"
+        case .ribbon: return "Потік S"
+        case .portal: return "Портал"
+        case .folio: return "Фоліо"
+        case .orbit: return "Орбіта"
+        case .wave: return "Хвиля"
+        case .archive: return "Архів"
+        case .facet: return "Кристал"
         case .glass: return "Бірюзове скло"
         case .pearl: return "Хрусталь"
         case .graphite: return "Графіт"
@@ -33,10 +54,11 @@ struct AppIconPicker: View {
     @State private var errorMessage: String?
 
     var body: some View {
+        ScrollViewReader { reader in
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Text("Іконка на екрані iPhone").font(.title2.bold())
-                Text("Оберіть іконку для головного екрана iPhone.")
+                Text("10 нових скляних іконок та попередні варіанти.")
                     .foregroundStyle(.secondary)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: textSize.isAccessibilitySize ? 260 : 140), spacing: 16)], spacing: 16) {
                     ForEach(ScanAppIcon.allCases) { icon in
@@ -54,6 +76,7 @@ struct AppIconPicker: View {
                             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 24))
                             .contentShape(RoundedRectangle(cornerRadius: 24))
                         }
+                        .id(icon.id)
                         .buttonStyle(.plain).disabled(pending != nil)
                         .accessibilityLabel(icon.title)
                         .accessibilityValue(current == icon ? "Обрано" : "")
@@ -63,6 +86,16 @@ struct AppIconPicker: View {
                 Text("Вигляд скла залежить від світлого, темного або прозорого оформлення іконок у налаштуваннях iPhone.")
                     .font(.footnote).foregroundStyle(.secondary)
             }.padding(20)
+        }
+        .task {
+            #if DEBUG
+            let args = ProcessInfo.processInfo.arguments
+            if let index = args.firstIndex(of: "--preview-icon-scroll"), index + 1 < args.count {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                reader.scrollTo(args[index + 1], anchor: .top)
+            }
+            #endif
+        }
         }
         .navigationTitle("Іконка застосунку").navigationBarTitleDisplayMode(.inline)
         .onAppear {

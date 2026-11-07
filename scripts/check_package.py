@@ -10,7 +10,7 @@ assert (asset/'AppIcon.png').is_file()
 assert json.loads((asset/'Contents.json').read_text())['images'][0]['filename']=='AppIcon.png'
 assert (root/'.github/workflows/build.yml').is_file()
 assert 'ua.autosplit.scanner' in (root/'project.yml').read_text()
-assert 'CURRENT_PROJECT_VERSION: 45' in (root/'project.yml').read_text()
+assert 'CURRENT_PROJECT_VERSION: 46' in (root/'project.yml').read_text()
 print('Package files, asset catalog and upgrade bundle identifier: OK')
 
 icon=root/'AutoSplit/ScanFlowIcon.icon'
@@ -22,7 +22,15 @@ assert len(manifest['groups']) >= 1
 assert 'ASSETCATALOG_COMPILER_APPICON_NAME: ScanFlowIcon' in (root/'project.yml').read_text()
 print('Icon Composer manifest and selected scanner artwork: OK')
 
-for name in ["ScanFlowIcon", "ScanFlowPearl", "ScanFlowGraphite", "ScanFlowClassic"]:
+catalog=json.loads((root/"AutoSplit/IconCollection.json").read_text())
+assert len(catalog)==10
+assert len({i["name"] for i in catalog})==10
+assert len({i["case"] for i in catalog})==10
+for item in catalog:
+    picker=(root/"AutoSplit/AppIconPicker.swift").read_text()
+    assert item["name"] in picker and item["title"] in picker
+    assert item["name"] in (root/"project.yml").read_text()
+for name in ["ScanFlowIcon", "ScanFlowPearl", "ScanFlowGraphite", "ScanFlowClassic"] + [i["name"] for i in catalog]:
     package=root/"AutoSplit"/(name+".icon")
     manifest=json.loads((package/"icon.json").read_text())
     for group in manifest["groups"]:
@@ -31,3 +39,6 @@ for name in ["ScanFlowIcon", "ScanFlowPearl", "ScanFlowGraphite", "ScanFlowClass
     if name != "ScanFlowClassic":
         assert all(layer.get("glass") for g in manifest["groups"] for layer in g["layers"])
 print("All alternate icon packages and native glass layers: OK")
+
+assert len({(root/"AutoSplit"/(i["name"]+".icon")/"Assets/Layer1.svg").read_text() for i in catalog})==10
+print("Ten distinct icon silhouettes, picker mappings and compiler names: OK")

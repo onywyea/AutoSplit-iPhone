@@ -83,33 +83,36 @@ jobs:
       - name: Verify file sharing and package unsigned IPA
         run: |
           python3 - <<'PYCODE'
-          import plistlib
+          import plistlib, json
+          from pathlib import Path
           with open('build/Build/Products/Release-iphoneos/AutoSplit.app/Info.plist','rb') as stream:
               info = plistlib.load(stream)
           assert info['UIFileSharingEnabled'] is True
           assert info['LSSupportsOpeningDocumentsInPlace'] is True
           assert info['CFBundleIdentifier'] == 'ua.autosplit.scanner'
-          assert info['CFBundleShortVersionString'] == '0.4.23'
-          assert info['CFBundleVersion'] == '45'
+          assert info['CFBundleShortVersionString'] == '0.4.24'
+          assert info['CFBundleVersion'] == '46'
           icons = info['CFBundleIcons']
           print('Compiled app icons:', icons)
           assert icons['CFBundlePrimaryIcon']['CFBundleIconName'] == 'ScanFlowIcon'
-          assert set(icons['CFBundleAlternateIcons']) == {'ScanFlowPearl','ScanFlowGraphite','ScanFlowClassic'}
+          assert set(icons['CFBundleAlternateIcons']) == {'ScanFlowPearl','ScanFlowGraphite','ScanFlowClassic'} | {i['name'] for i in json.loads(Path('AutoSplit/IconCollection.json').read_text())}
+          for name in ['ScanFlowIcon'] + list(icons['CFBundleAlternateIcons']):
+              assert (Path('build/Build/Products/Release-iphoneos/AutoSplit.app') / ('IconPreview-'+name+'.png')).stat().st_size > 1000
           PYCODE
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/AutoSplit.app Payload/
-          zip -qr ScanFlow-0.4.23.ipa Payload
+          zip -qr ScanFlow-0.4.24.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ScanFlow-0.4.23-build45
-          path: ScanFlow-0.4.23.ipa
+          name: ScanFlow-0.4.24-build46
+          path: ScanFlow-0.4.24.ipa
           retention-days: 7
 
   preview:
     if: ${{ !contains(github.event.head_commit.message, '[package only]') }}
-    name: Native home design preview
+    name: Native icon gallery preview
     runs-on: macos-26-intel
-    timeout-minutes: 25
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -149,11 +152,11 @@ jobs:
             -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO ARCHS=x86_64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
       - name: Render exact simulator icon selection previews
         run: python3 scripts/render_icon_previews.py --platform iphonesimulator --app preview-build/Build/Products/Debug-iphonesimulator/AutoSplit.app
-      - name: Capture home and large text layout
-        run: python3 scripts/preview_home.py
+      - name: Capture all ten icons and large text layout
+        run: python3 scripts/preview_icons.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ScanFlow-0.4.23-design-preview
+          name: ScanFlow-0.4.24-design-preview
           path: design-preview/
           retention-days: 7

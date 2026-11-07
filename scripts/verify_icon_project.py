@@ -1,6 +1,7 @@
 """Keep native Icon Composer type explicit across XcodeGen/Xcode versions."""
 from pathlib import Path
 import re
+import json
 p=Path('AutoSplit.xcodeproj/project.pbxproj')
 project=p.read_text()
 lines=project.splitlines()
@@ -12,7 +13,7 @@ for i,line in enumerate(lines):
         else:
             line=line.replace('isa = PBXFileReference;','isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon;')
         lines[i]=line;found=True
-for name in ['ScanFlowIcon','ScanFlowPearl','ScanFlowGraphite','ScanFlowClassic']:
+for name in ['ScanFlowIcon','ScanFlowPearl','ScanFlowGraphite','ScanFlowClassic'] + [i['name'] for i in json.loads(Path('AutoSplit/IconCollection.json').read_text())]:
     assert name+'.icon in Resources' in project, name+' is missing from Resources'
 assert found, 'Icon Composer package is missing as a file reference'
 project='\n'.join(lines)+'\n'
