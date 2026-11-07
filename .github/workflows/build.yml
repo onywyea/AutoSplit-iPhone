@@ -88,14 +88,14 @@ jobs:
           assert info['LSSupportsOpeningDocumentsInPlace'] is True
           assert info['CFBundleIdentifier'] == 'ua.autosplit.scanner'
           assert info['CFBundleShortVersionString'] == '0.4.22'
-          assert info['CFBundleVersion'] == '41'
+          assert info['CFBundleVersion'] == '42'
           PYCODE
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/AutoSplit.app Payload/
           zip -qr ScanFlow-0.4.22.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ScanFlow-0.4.22-build41
+          name: ScanFlow-0.4.22-build42
           path: ScanFlow-0.4.22.ipa
           retention-days: 7
 

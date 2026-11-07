@@ -15,7 +15,8 @@ struct StudioAppearanceSeal: View {
         .foregroundStyle(.white)
         .frame(width: 56, height: 56)
         .contentShape(Circle())
-        .accessibilityHidden(true)
+        .fixedSize()
+        .dynamicTypeSize(.large)
     }
 
     private func sealText(_ text: String, from start: Double, to end: Double, lower: Bool) -> some View {
