@@ -29,12 +29,23 @@ try:
     preferences = container / 'Library/Preferences/ua.autosplit.scanner.plist'
     subprocess.check_call(['defaults', 'write', str(preferences), 'scanflow.studio.palette', '-string', 'gold'])
     subprocess.check_call(['xcrun', 'simctl', 'launch', device, 'ua.autosplit.scanner'])
-    time.sleep(10)
     Path('design-preview').mkdir(exist_ok=True)
-    subprocess.check_call(['xcrun', 'simctl', 'io', device, 'screenshot', 'design-preview/home.png'])
+    def capture_ready(name):
+        path = Path('design-preview') / name
+        # A simulator cold launch can remain on a blank launch screen for >10s.
+        # Synthetic document previews plus the real UI produce a much larger PNG.
+        # Still inspect the captured image visually; this only rejects blank frames.
+        for attempt in range(36):
+            time.sleep(5)
+            subprocess.check_call(['xcrun', 'simctl', 'io', device, 'screenshot', str(path)])
+            if path.stat().st_size > 100_000:
+                print(f'Nonblank capture: {name}, {path.stat().st_size} bytes', flush=True)
+                return
+            print(f'Waiting for app first frame: {attempt + 1}/36', flush=True)
+        raise RuntimeError('The simulator did not render the application; blank screenshot rejected')
+    capture_ready('home.png')
     subprocess.check_call(['xcrun', 'simctl', 'ui', device, 'content_size', 'accessibility-large'])
-    time.sleep(5)
-    subprocess.check_call(['xcrun', 'simctl', 'io', device, 'screenshot', 'design-preview/home-large-text.png'])
+    capture_ready('home-large-text.png')
 finally:
     subprocess.run(['xcrun', 'simctl', 'shutdown', device], check=False)
     subprocess.run(['xcrun', 'simctl', 'delete', device], check=False)

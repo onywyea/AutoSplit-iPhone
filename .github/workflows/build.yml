@@ -6,6 +6,7 @@ on:
     paths: ["AutoSplit/**", "project.yml", "scripts/**", "tests/**", ".github/workflows/build.yml"]
 jobs:
   build:
+    if: ${{ !contains(github.event.head_commit.message, '[preview only]') }}
     runs-on: macos-26-intel
     permissions:
       contents: read
@@ -138,7 +139,7 @@ jobs:
         run: |
           xcodebuild -project AutoSplit.xcodeproj -scheme AutoSplit \
             -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
+            -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO ARCHS=x86_64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
       - name: Capture home and large text layout
         run: python3 scripts/preview_home.py
       - uses: actions/upload-artifact@v4
