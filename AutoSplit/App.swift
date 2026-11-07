@@ -112,7 +112,7 @@ struct LibraryView:View {
         libraryRoot
             .navigationTitle(studio ? studioTab.title : "ScanFlow")
             .navigationBarTitleDisplayMode(studio ? .large : .inline)
-            .toolbarBackground(studio ? .automatic : .hidden, for: .navigationBar)
+            .toolbarBackground(studio && studioTab != .home ? .automatic : .hidden, for: .navigationBar)
             .toolbar {libraryToolbar}
             .safeAreaInset(edge:.bottom) {bottomBar}
             .navigationDestination(for: UUID.self) { id in
@@ -131,13 +131,23 @@ struct LibraryView:View {
         if studio {
             studioContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(StudioBackdrop(palette: studioTab == .home ? .home : .teal))
+                .background(StudioBackdrop(palette: studioTab == .home ? .home : .teal, seed: studioBackdropSeed))
                 .foregroundStyle(.white)
                 .environment(\.scanTheme, .dark)
                 .tint(.white)
         } else {
             searchableLibrary.background(ScanBackdrop())
         }
+    }
+
+    private var studioBackdropSeed: String {
+        if studioTab == .home {
+            let recent = Array(store.documents.filter { !$0.pages.isEmpty }.prefix(10))
+            let latest = resume ?? recent.first
+            let featured = latest.map { first in [first] + Array(recent.filter { $0.id != first.id }.prefix(3)) } ?? []
+            return featured.indices.contains(heroIndex) ? featured[heroIndex].id.uuidString : ""
+        }
+        return folder == "all" ? studioTab.rawValue : folder
     }
 
     @ViewBuilder private var studioContent: some View {

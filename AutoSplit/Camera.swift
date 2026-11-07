@@ -545,7 +545,7 @@ struct CaptureView:View {
     @State private var previousIdleTimer:Bool?
     @State private var visible=false
     @State private var auto=true
-    @State private var exposure=false
+    @State private var settingsExpanded=false
     @State private var reviewing=false
     let documentID:UUID
     var pages:[Leaf] {store.document(documentID)?.pages ?? []}
@@ -574,42 +574,17 @@ struct CaptureView:View {
                 Spacer()
                 LinearGradient(colors:[.clear,.black.opacity(0.85)],startPoint:.top,endPoint:.bottom).frame(height:260)
             }.ignoresSafeArea().allowsHitTesting(false)
-            VStack(spacing:16) {
-                HStack(spacing:20) {
-                    Button {dismiss()} label:{Image(systemName:"xmark").frame(width:40,height:40)}.disabled(waiting)
-                    Spacer()
-                    Button {auto.toggle()} label:{Label(auto ? "Авто":"Вручну",systemImage:auto ? "viewfinder.circle.fill":"viewfinder").font(.subheadline.weight(.semibold))}
-                    Button {engine.toggleFlash()} label:{Image(systemName:engine.flashEnabled && engine.flashSupported ? "bolt.fill":"bolt.slash.fill").foregroundStyle(engine.flashEnabled && engine.flashSupported ? Color.yellow:.white)}.disabled(!engine.flashSupported || waiting).accessibilityLabel("Спалах")
-                    Button {exposure.toggle()} label:{Image(systemName:"sun.max")}.accessibilityLabel("Яскравість фото")
-                }.font(.title3).padding(12).scanGlass().padding(.horizontal,16)
-                CameraLensPicker(engine:engine,disabled:waiting).padding(.horizontal,22)
-                CameraFocusControls(engine:engine,disabled:waiting).padding(.horizontal,22)
-                Text(engine.resolutionStatus.isEmpty ? engine.requestedResolution:engine.resolutionStatus)
-                    .font(.caption2.monospacedDigit()).padding(6).background(.black.opacity(0.55),in:Capsule()).allowsHitTesting(false)
-                CameraLevelBadge(level:level)
-                if exposure {
-                    HStack {
-                        Image(systemName:"sun.min")
-                        Slider(value:Binding(get:{engine.brightness},set:{engine.setBrightness($0)}),in:-0.7...1.0).tint(.accent)
-                        Image(systemName:"sun.max.fill")
-                        Text(String(format:"%+.1f",engine.brightness)).font(.caption.monospacedDigit()).frame(width:36)
-                    }.padding(14).background(.black.opacity(0.55),in:RoundedRectangle(cornerRadius:18)).padding(.horizontal,22)
-                }
+            VStack(spacing: 12) {
+                cameraToolbar
+                if settingsExpanded { cameraSettings }
+                CameraLevelBadge(level: level)
                 Spacer()
-                if !engine.framingHint.isEmpty {
-                    Text(engine.framingHint).font(.caption).multilineTextAlignment(.center)
-                        .padding(8).background(.black.opacity(0.6),in:Capsule()).allowsHitTesting(false)
-                }
-                Label(engine.focusStatus,systemImage:engine.focusLocked ? "lock.fill":(engine.focusReady ? "checkmark.viewfinder":"viewfinder"))
-                    .font(.caption.weight(.semibold)).foregroundStyle(engine.focusReady || engine.focusLocked ? Color.scanSuccess:Color.yellow)
-                    .multilineTextAlignment(.center).padding(10).background(.black.opacity(0.65),in:Capsule())
-                    .accessibilityLabel(engine.focusStatus)
-                Text(engine.message).font(.subheadline.weight(.medium)).multilineTextAlignment(.center).padding(.horizontal,16).padding(.vertical,9).background(.black.opacity(0.5),in:Capsule())
+                cameraStatus
                 HStack {
                     Button {reviewing=true} label: {
                         ZStack(alignment:.bottomTrailing) {
                             Thumb(file:pages.last?.output).frame(width:52,height:70).clipShape(RoundedRectangle(cornerRadius:7))
-                            Text("\(count)").font(.caption.bold().monospacedDigit()).padding(5).background(Color.accent,in:Circle()).offset(x:7,y:7)
+                            Text("\(count)").font(.caption.bold().monospacedDigit()).padding(5).background(.white,in:Circle()).foregroundStyle(.black).offset(x:7,y:7)
                         }
                     }.frame(width:94).disabled(count==0 || waiting).accessibilityLabel("Переглянути сторінки")
                     Spacer()
@@ -618,11 +593,13 @@ struct CaptureView:View {
                     Button { dismiss() } label: {
                         Text(store.savingPhotos > 0 ? "Зберігаю…" : "Готово")
                             .font(.headline).lineLimit(1).minimumScaleFactor(0.75)
-                            .frame(width: 94, height: 62).contentShape(Rectangle())
-                    }.scanPrimaryButton().disabled(waiting)
+                            .frame(width: 100, height: 68).contentShape(Capsule())
+                            .modifier(StudioGlassCapsule())
+                    }.buttonStyle(.plain).disabled(waiting)
                 }
                 .padding(.horizontal, 14)
-                .background { Color.black.opacity(0.001).onTapGesture {} }
+                .padding(.vertical, 10)
+                .background { Color.black.opacity(0.001).contentShape(Rectangle()).onTapGesture {} }
                 HStack(spacing:6) {
                     Text("Документ").font(.caption.weight(.semibold))
                     if engine.flashEnabled,let fired=engine.lastFlashFired {
@@ -655,6 +632,59 @@ struct CaptureView:View {
                     .toolbar {ToolbarItem(placement:.topBarLeading){Button("До камери"){reviewing=false}}}
             }
         }
+    }
+
+    private var cameraToolbar: some View {
+        HStack(spacing: 12) {
+            Button { dismiss() } label: {
+                Image(systemName: "xmark").frame(width: 44, height: 44)
+                .modifier(StudioGlassCapsule())
+            }.disabled(waiting).accessibilityLabel("Закрити камеру")
+            Spacer(minLength: 0)
+            HStack(spacing: 0) {
+                Button { auto.toggle() } label: {
+                    Label(auto ? "Авто" : "Вручну", systemImage: "viewfinder")
+                    .font(.subheadline.weight(.semibold)).padding(.horizontal, 12).frame(minHeight: 44)
+                }.accessibilityLabel("Режим зйомки").accessibilityValue(auto ? "Автоматичний" : "Ручний")
+                Button { engine.toggleFlash() } label: {
+                    Image(systemName: engine.flashEnabled && engine.flashSupported ? "bolt.fill" : "bolt.slash.fill")
+                    .foregroundStyle(engine.flashEnabled && engine.flashSupported ? Color.yellow : .white)
+                    .frame(width: 44, height: 44)
+                }.disabled(!engine.flashSupported || waiting).accessibilityLabel("Спалах")
+                .accessibilityValue(engine.flashEnabled ? "Увімкнений" : "Вимкнений")
+                Button { withAnimation(.easeInOut(duration: 0.2)) { settingsExpanded.toggle() } } label: {
+                    Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44)
+                }.accessibilityLabel("Налаштування камери")
+            }.padding(3).modifier(StudioGlassCapsule())
+        }.font(.title3).buttonStyle(.plain).padding(.horizontal, 16)
+    }
+    private var cameraSettings: some View {
+        VStack(spacing: 10) {
+            CameraLensPicker(engine: engine, disabled: waiting)
+            CameraFocusControls(engine: engine, disabled: waiting)
+            HStack {
+                Image(systemName: "sun.min")
+                Slider(value: Binding(get: { engine.brightness }, set: { engine.setBrightness($0) }), in: -0.7...1.0).tint(.white)
+                Image(systemName: "sun.max.fill")
+                Text(String(format: "%+.1f", engine.brightness)).font(.caption.monospacedDigit()).frame(width: 36)
+            }.frame(minHeight: 44).accessibilityLabel("Яскравість фото")
+            Text(engine.resolutionStatus.isEmpty ? engine.requestedResolution : engine.resolutionStatus)
+            .font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.7))
+        }.padding(16).modifier(StudioGlassPanel()).padding(.horizontal, 16)
+    }
+    private var cameraStatus: some View {
+        VStack(spacing: 5) {
+            Label(engine.focusStatus, systemImage: engine.focusLocked ? "lock.fill" : "viewfinder")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(engine.focusReady || engine.focusLocked ? Color.scanSuccess : .white)
+            Text(engine.message).font(.subheadline.weight(.medium)).multilineTextAlignment(.center)
+            if !engine.framingHint.isEmpty {
+                Text(engine.framingHint).font(.caption2).foregroundStyle(.white.opacity(0.75))
+                .multilineTextAlignment(.center)
+            }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 12)
+        .modifier(StudioGlassPanel()).padding(.horizontal, 20).allowsHitTesting(false)
     }
     private func updateCameraActivity() {
         let active=visible && scenePhase == .active && !reviewing

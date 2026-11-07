@@ -31,8 +31,8 @@ targets:
         INFOPLIST_KEY_NSCameraUsageDescription: Сканування документів у PDF
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        MARKETING_VERSION: '0.4.19'
-        CURRENT_PROJECT_VERSION: 38
+        MARKETING_VERSION: '0.4.20'
+        CURRENT_PROJECT_VERSION: 39
         CODE_SIGNING_ALLOWED: NO
     scheme:
       testTargets: []

@@ -86,7 +86,7 @@ struct DocumentView:View {
                 else {pageGrid(document)}
             }.background {
                 if studio && !ordering && !selecting {
-                    StudioBackdrop(palette: !pages.isEmpty && pages.allSatisfy { $0.reviewed == true } ? .green : .teal)
+                    StudioBackdrop(palette: .teal, seed: documentID.uuidString)
                 } else {
                     ScanBackdrop()
                 }

@@ -132,6 +132,7 @@ struct AppearanceSheet:View {
     @AppStorage("scanflow.appearance") private var appearance="system"
     @AppStorage("scanflow.accent") private var accentID="coral"
     @AppStorage("scanflow.studio") private var studio = true
+    @AppStorage("scanflow.studio.palette") private var palette = "automatic"
     private var effect:String {
         if reduced {return "Непрозорий · системна доступність"}
         #if compiler(>=6.2)
@@ -150,6 +151,19 @@ struct AppearanceSheet:View {
                         Text("Темна · графіт").tag("dark")
                         Text("Монохром · срібло").tag("monochrome")
                     }.pickerStyle(.inline).disabled(studio)
+                }
+                if studio {
+                    Section("Колір простору") {
+                        Picker("Градієнт", selection: $palette) {
+                            ForEach(StudioColor.allCases) { color in
+                                Label { Text(color.title) } icon: {
+                                    Image(systemName: "circle.fill").foregroundStyle(color.color)
+                                }.tag(color.rawValue)
+                            }
+                        }.pickerStyle(.inline)
+                        Text("Автоматичний колір залишається однаковим для комплекту та змінюється при переході до іншого. Колір сканованих сторінок не змінюється.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 if !studio && appearance == "system" {
                     Section("Акцентний колір") {

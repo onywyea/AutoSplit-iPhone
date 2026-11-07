@@ -24,24 +24,66 @@ enum StudioTab: String, CaseIterable {
     }
 }
 
+enum StudioColor: String, CaseIterable, Identifiable {
+    case automatic, teal, green, gold, berry, violet
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .automatic: return "Автоматично · за комплектом"
+        case .teal: return "Бірюза"
+        case .green: return "Олива"
+        case .gold: return "Бурштин"
+        case .berry: return "Гранат"
+        case .violet: return "Ірис"
+        }
+    }
+    var color: Color {
+        switch self {
+        case .automatic, .teal: return Color(red: 0, green: 0.54, blue: 0.58)
+        case .green: return Color(red: 0.46, green: 0.60, blue: 0.015)
+        case .gold: return Color(red: 0.82, green: 0.45, blue: 0)
+        case .berry: return Color(red: 0.52, green: 0.12, blue: 0.19)
+        case .violet: return Color(red: 0.38, green: 0.25, blue: 0.66)
+        }
+    }
+    static func resolve(_ preference: String, seed: String, fallback: StudioColor) -> StudioColor {
+        if let chosen = StudioColor(rawValue: preference), chosen != .automatic { return chosen }
+        guard !seed.isEmpty else { return fallback }
+        let choices: [StudioColor] = [.teal, .green, .gold, .berry, .violet]
+        // Stable across launches; unlike Swift's randomized hashValue.
+        let index = seed.utf8.reduce(0) { ($0 * 31 + Int($1)) % choices.count }
+        return choices[index]
+    }
+}
+
 struct StudioBackdrop: View {
     enum Palette { case home, teal, green, reader }
     let palette: Palette
-
-    private var colors: [Color] {
-        switch palette {
-        case .home: return [.black, .black]
-        case .reader: return [Color(red: 0.035, green: 0.14, blue: 0.17), Color(red: 0.02, green: 0.06, blue: 0.08)]
-        case .teal: return [Color(red: 0, green: 0.60, blue: 0.64), Color(red: 0.01, green: 0.17, blue: 0.19), Color(red: 0, green: 0.08, blue: 0.09)]
-        case .green: return [Color(red: 0.48, green: 0.63, blue: 0.02), Color(red: 0.23, green: 0.34, blue: 0.01), Color(red: 0.08, green: 0.15, blue: 0)]
-        }
-    }
+    var seed: String = ""
+    @AppStorage("scanflow.studio.palette") private var preference = "automatic"
 
     var body: some View {
-        LinearGradient(colors: colors, startPoint: .top, endPoint: .bottom)
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+        let tone = StudioColor.resolve(preference, seed: seed,
+                                      fallback: palette == .home ? .berry : palette == .green ? .green : .teal).color
+        Group {
+            if palette == .home {
+                // One continuous surface extends behind the navigation and hero.
+                LinearGradient(stops: [
+                    .init(color: tone.opacity(0.42), location: 0),
+                    .init(color: tone.opacity(0.65), location: 0.42),
+                    .init(color: .black, location: 0.78),
+                    .init(color: .black, location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+            } else {
+                LinearGradient(colors: [tone.opacity(palette == .reader ? 0.24 : 1),
+                                        tone.opacity(palette == .reader ? 0.10 : 0.42), .black],
+                               startPoint: .top, endPoint: .bottom)
+            }
+        }
+        .background(.black)
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -106,6 +148,19 @@ struct StudioGlassCapsule: ViewModifier {
     }
 }
 
+struct StudioGlassPanel: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduced
+    @ViewBuilder func body(content: Content) -> some View {
+        if reduced {
+            content.background(Color(white: 0.12), in: RoundedRectangle(cornerRadius: 24))
+        } else if #available(iOS 26.0, *) {
+            content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
+        } else {
+            content.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
+        }
+    }
+}
+
 struct StudioHero: View {
     let document: ScanDocument?
     let blocked: Bool
@@ -147,14 +202,7 @@ struct StudioHero: View {
         .padding(.horizontal, 20)
         .padding(.bottom, 42)
         .frame(maxWidth: .infinity)
-        .background {
-            LinearGradient(stops: [
-                .init(color: Color(white: 0.15), location: 0),
-                .init(color: Color(white: 0.12), location: 0.38),
-                .init(color: Color(red: 0.33, green: 0.10, blue: 0.12), location: 0.72),
-                .init(color: .black, location: 1)
-            ], startPoint: .top, endPoint: .bottom)
-        }
+
     }
 }
 

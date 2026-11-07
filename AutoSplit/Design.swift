@@ -88,10 +88,8 @@ struct ScanFolderSurface: ViewModifier {
         } else if active && !reduced {
             if #available(iOS 26.0, *) {
                 content.glassEffect(.regular.interactive(), in: Capsule())
-                    .modifier(ScanSpectralRim(strength: 0.82))
             } else {
                 content.background(.regularMaterial, in: Capsule())
-                    .modifier(ScanSpectralRim(strength: 0.82))
             }
         } else {
             content.background(Color.primary.opacity(active ? 0.18 : 0.07), in: Capsule())

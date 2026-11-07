@@ -80,24 +80,25 @@ struct PageBrowser:View {
             }
         }.frame(maxWidth:.infinity,maxHeight:.infinity)
         .background {
-            if studio { StudioBackdrop(palette: .reader) } else { Color.black }
+            if studio { StudioBackdrop(palette: .reader, seed: documentID.uuidString) } else { Color.black }
         }
         .toolbar(.hidden, for: .tabBar)
         .toolbarBackground(.automatic, for: .navigationBar)
-        .toolbarBackground(.automatic, for: .bottomBar)
-        .navigationTitle("\(pages.isEmpty ? 0:position+1) / \(pages.count)").navigationBarTitleDisplayMode(.inline).toolbar(cropPage == nil ? .visible : .hidden,for:.navigationBar)
-        .toolbar {
-            if studio && cropPage == nil {
-                ToolbarItemGroup(placement: .bottomBar) {
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if studio && cropPage == nil && !pages.isEmpty {
+                HStack(spacing: 0) {
                     readerTool("Обрізати", icon: "crop") { cropPage = selectedPage }
-                    Spacer()
                     readerTool("Повернути", icon: "rotate.right") { rotatePage() }
-                    Spacer()
                     readerTool("Вигляд", icon: "slider.horizontal.3") { editing = true }
-                    Spacer()
                     readerTool("PDF", icon: "square.and.arrow.up") { savePDF() }
                 }
+                .padding(6)
+                .modifier(StudioGlassCapsule())
+                .padding(.horizontal, 16).padding(.bottom, 8)
             }
+        }
+        .navigationTitle("\(pages.isEmpty ? 0:position+1) / \(pages.count)").navigationBarTitleDisplayMode(.inline).toolbar(cropPage == nil ? .visible : .hidden,for:.navigationBar)
+        .toolbar {
             ToolbarItem(placement:.topBarTrailing) {
                 Menu {
                     Button {nextIssue()} label: { Label("Наступна сторінка для перевірки", systemImage: "viewfinder") }
@@ -153,12 +154,13 @@ struct PageBrowser:View {
         Button(action: action) {
             VStack(spacing: 3) {
                 Image(systemName: icon).font(.system(size: 20, weight: .medium))
-                Text(title).font(.caption2)
+                Text(title).font(.caption2.weight(.medium)).lineLimit(1).minimumScaleFactor(0.8)
             }
-            .frame(minWidth: 48, minHeight: 44)
+            .frame(maxWidth: .infinity, minHeight: 56)
             .contentShape(Rectangle())
         }
         .disabled(store.busy || store.savingPhotos > 0 || selectedPage == nil)
+        .buttonStyle(.plain)
         .accessibilityLabel(title)
     }
 
@@ -176,7 +178,7 @@ struct PageBrowser:View {
         VStack(spacing:6) {
             Button(action:perform) {Image(systemName:icon).font(.title3).frame(width:26,height:44)}
                 .scanSecondaryButton().accessibilityLabel(title)
-            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(title).font(.caption2.weight(.medium)).lineLimit(1).minimumScaleFactor(0.8).foregroundStyle(.secondary)
         }.frame(maxWidth:.infinity)
     }
     private func nextIssue() {

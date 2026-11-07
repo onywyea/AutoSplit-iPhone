@@ -26,8 +26,9 @@ struct CameraLevelBadge:View {
                 Circle().fill(tone).frame(width:8,height:8).offset(x:max(-11,min(11,level.x*55)),y:max(-11,min(11,-level.y*55)))
             }.frame(width:32,height:32)
             Text(level.angle.map {String(format:"Рівень %.1f°",$0)} ?? "Рівень недоступний").font(.caption.monospacedDigit())
-        }.foregroundStyle(tone).padding(.horizontal,10).background(.black.opacity(0.6),in:Capsule()).allowsHitTesting(false)
+        }.foregroundStyle(tone).padding(.horizontal, 12).padding(.vertical, 4).modifier(StudioGlassCapsule()).allowsHitTesting(false)
             .accessibilityLabel("Нахил до горизонталі").accessibilityValue(level.angle.map{String(format:"%.1f градусів",$0)} ?? "недоступно")
     }
     private var tone:Color {(level.angle ?? 180)<=2 ? .green:.white}
 }
+
