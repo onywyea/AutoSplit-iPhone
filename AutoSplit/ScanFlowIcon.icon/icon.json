@@ -1,66 +1,17 @@
 {
   "fill": {
     "linear-gradient": [
-      "srgb:0.00000,0.54000,0.56000,1.00000",
-      "srgb:0.01500,0.12000,0.16000,1.00000"
+      "srgb:0.16000,0.02500,0.10000,1.00000",
+      "srgb:0.28000,0.05000,0.16000,1.00000"
     ]
   },
-  "fill-specializations": [
-    {
-      "appearance": "dark",
-      "value": {
-        "linear-gradient": [
-          "srgb:0.02500,0.25000,0.28000,1.00000",
-          "srgb:0.00500,0.04500,0.06500,1.00000"
-        ]
-      }
-    }
-  ],
   "groups": [
     {
-      "name": "Viewfinder",
+      "name": "Selected glass scanner",
       "layers": [
         {
-          "name": "Viewfinder",
-          "image-name": "Corners.svg",
-          "glass": true
-        }
-      ],
-      "specular": true,
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.15
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.25
-      }
-    },
-    {
-      "name": "Document",
-      "layers": [
-        {
-          "name": "Document",
-          "image-name": "Page.svg",
-          "glass": true
-        }
-      ],
-      "specular": true,
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.15
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.15
-      }
-    },
-    {
-      "name": "Typography",
-      "layers": [
-        {
-          "name": "Typography",
-          "image-name": "Ink.svg",
+          "name": "Scanner artwork",
+          "image-name": "ScannerArtwork.png",
           "glass": false
         }
       ],
@@ -68,25 +19,6 @@
       "shadow": {
         "kind": "neutral",
         "opacity": 0
-      }
-    },
-    {
-      "name": "Scan line",
-      "layers": [
-        {
-          "name": "Scan line",
-          "image-name": "Beam.svg",
-          "glass": true
-        }
-      ],
-      "specular": true,
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.15
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.1
       }
     }
   ],

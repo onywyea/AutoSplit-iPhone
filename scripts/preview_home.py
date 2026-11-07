@@ -20,7 +20,7 @@ try:
     subprocess.check_call(['xcrun', 'simctl', 'boot', device])
     subprocess.check_call(['xcrun', 'simctl', 'bootstatus', device, '-b'])
     subprocess.check_call(['xcrun', 'simctl', 'status_bar', device, 'override', '--time', '9:41', '--batteryState', 'charged', '--batteryLevel', '100'])
-    app = 'preview-build/Build/Products/Release-iphonesimulator/AutoSplit.app'
+    app = 'preview-build/Build/Products/Debug-iphonesimulator/AutoSplit.app'
     subprocess.check_call(['xcrun', 'simctl', 'install', device, app])
     container = Path(run('xcrun', 'simctl', 'get_app_container', device, 'ua.autosplit.scanner', 'data'))
     root = container / 'Library/Application Support/ScanFlow-v2'

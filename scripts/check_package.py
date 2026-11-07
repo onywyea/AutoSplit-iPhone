@@ -10,7 +10,7 @@ assert (asset/'AppIcon.png').is_file()
 assert json.loads((asset/'Contents.json').read_text())['images'][0]['filename']=='AppIcon.png'
 assert (root/'.github/workflows/build.yml').is_file()
 assert 'ua.autosplit.scanner' in (root/'project.yml').read_text()
-assert 'CURRENT_PROJECT_VERSION: 40' in (root/'project.yml').read_text()
+assert 'CURRENT_PROJECT_VERSION: 41' in (root/'project.yml').read_text()
 print('Package files, asset catalog and upgrade bundle identifier: OK')
 
 icon=root/'AutoSplit/ScanFlowIcon.icon'
@@ -18,6 +18,6 @@ manifest=json.loads((icon/'icon.json').read_text())
 for group in manifest['groups']:
     for layer in group['layers']:
         assert (icon/'Assets'/layer['image-name']).is_file()
-assert len(manifest['groups'])==4
+assert len(manifest['groups']) >= 1
 assert 'ASSETCATALOG_COMPILER_APPICON_NAME: ScanFlowIcon' in (root/'project.yml').read_text()
-print('Native layered Liquid Glass icon manifest and artwork: OK')
+print('Icon Composer manifest and selected scanner artwork: OK')

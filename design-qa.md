@@ -1,3 +1,9 @@
+# ScanFlow 0.4.22 visual QA
+
+Scope: centered home subject, description and Continue action; circular appearance wordmark; selected glass scanner app artwork.
+
+final result: pending
+
 # ScanFlow 0.4.21 home hero — visual QA
 
 Date: 2026-11-07
