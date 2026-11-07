@@ -173,7 +173,7 @@ struct StudioHero: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .center, spacing: 8) {
             StudioPageFan(files: Array((document?.pages ?? []).prefix(3).map(\.output)))
                 .padding(.bottom, 4)
             Text(document == nil ? "SCANFLOW" : "ОСТАННІЙ КОМПЛЕКТ")
@@ -202,9 +202,10 @@ struct StudioHero: View {
             }
             .buttonStyle(.plain).disabled(blocked).padding(.top, 4)
         }
+        .multilineTextAlignment(.center)
         .foregroundStyle(.white)
         .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
         .fixedSize(horizontal: false, vertical: true)
 
     }

@@ -362,11 +362,31 @@ struct LibraryView:View {
                 Button(selecting ? "Готово":"Вибрати") {selecting.toggle();selected=[]}.disabled(store.busy || store.documents.isEmpty)
             }
         }
-        ToolbarItem(placement:.topBarLeading) {
-            if selecting {Button("Усі") {selected=Set(filtered.map(\.id))}.disabled(store.busy)}
-            else {Button {appearancePresented=true} label:{Image(systemName:"paintpalette")}.accessibilityLabel("Вигляд і Liquid Glass")}
+        appearanceToolbar
+    }
+
+    @ToolbarContentBuilder private var appearanceToolbar: some ToolbarContent {
+        if #available(iOS 26.0, *), studio, !selecting {
+            ToolbarItem(placement: .topBarLeading) { appearanceButton }
+                .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .topBarLeading) {
+                if selecting {
+                    Button("Усі") { selected = Set(filtered.map(\.id)) }.disabled(store.busy)
+                } else { appearanceButton }
+            }
         }
     }
+
+    private var appearanceButton: some View {
+        Button { appearancePresented = true } label: {
+            if studio { StudioAppearanceSeal() }
+            else { Image(systemName: "paintpalette") }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Вигляд і теми ScanFlow")
+    }
+
     private var errorPresented:Binding<Bool> {
         Binding(get:{store.error != nil && exportRequest == nil && moveRequest==nil},set:{if !$0 {store.error=nil}})
     }
