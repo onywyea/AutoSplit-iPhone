@@ -1,0 +1,28 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.16000,0.02500,0.10000,1.00000",
+      "srgb:0.28000,0.05000,0.16000,1.00000"
+    ]
+  },
+  "groups": [
+    {
+      "name": "Selected glass scanner",
+      "layers": [
+        {
+          "name": "Scanner artwork",
+          "image-name": "ScannerArtwork.png",
+          "glass": false
+        }
+      ],
+      "specular": false,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}

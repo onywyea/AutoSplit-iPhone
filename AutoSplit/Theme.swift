@@ -174,6 +174,11 @@ struct AppearanceSheet:View {
                         }.pickerStyle(.inline)
                     }
                 }
+                Section("Іконка застосунку") {
+                    NavigationLink { AppIconPicker() } label: {
+                        Label("Змінити іконку", systemImage: "app.badge")
+                    }
+                }
                 Section("Ефект панелей") {
                     Label(effect,systemImage:"circle.lefthalf.filled")
                     Text("Документ не покривається склом. Пониження прозорості в налаштуваннях iPhone вимикає прозорі ефекти.").font(.caption).foregroundStyle(.secondary)

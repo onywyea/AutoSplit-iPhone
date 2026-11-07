@@ -10,7 +10,7 @@ assert (asset/'AppIcon.png').is_file()
 assert json.loads((asset/'Contents.json').read_text())['images'][0]['filename']=='AppIcon.png'
 assert (root/'.github/workflows/build.yml').is_file()
 assert 'ua.autosplit.scanner' in (root/'project.yml').read_text()
-assert 'CURRENT_PROJECT_VERSION: 42' in (root/'project.yml').read_text()
+assert 'CURRENT_PROJECT_VERSION: 43' in (root/'project.yml').read_text()
 print('Package files, asset catalog and upgrade bundle identifier: OK')
 
 icon=root/'AutoSplit/ScanFlowIcon.icon'
@@ -21,3 +21,13 @@ for group in manifest['groups']:
 assert len(manifest['groups']) >= 1
 assert 'ASSETCATALOG_COMPILER_APPICON_NAME: ScanFlowIcon' in (root/'project.yml').read_text()
 print('Icon Composer manifest and selected scanner artwork: OK')
+
+for name in ["ScanFlowIcon", "ScanFlowPearl", "ScanFlowGraphite", "ScanFlowClassic"]:
+    package=root/"AutoSplit"/(name+".icon")
+    manifest=json.loads((package/"icon.json").read_text())
+    for group in manifest["groups"]:
+        for layer in group["layers"]:
+            assert (package/"Assets"/layer["image-name"]).is_file()
+    if name != "ScanFlowClassic":
+        assert all(layer.get("glass") for g in manifest["groups"] for layer in g["layers"])
+print("All alternate icon packages and native glass layers: OK")

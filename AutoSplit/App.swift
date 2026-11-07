@@ -23,7 +23,15 @@ struct ScanFlowApp:App {
         }
     }
     @ViewBuilder private var appRoot: some View {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--preview-icons") {
+            NavigationStack { AppIconPicker() }
+        } else {
+            if studio { StudioTabs() } else { LibraryView() }
+        }
+        #else
         if studio { StudioTabs() } else { LibraryView() }
+        #endif
     }
 
 }

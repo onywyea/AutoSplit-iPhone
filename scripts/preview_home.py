@@ -46,6 +46,26 @@ try:
     capture_ready('home.png')
     subprocess.check_call(['xcrun', 'simctl', 'ui', device, 'content_size', 'accessibility-large'])
     capture_ready('home-large-text.png')
+    subprocess.check_call(['xcrun', 'simctl', 'ui', device, 'content_size', 'large'])
+    subprocess.check_call(['xcrun', 'simctl', 'terminate', device, 'ua.autosplit.scanner'])
+    subprocess.check_call(['xcrun', 'simctl', 'launch', device, 'ua.autosplit.scanner', '--preview-icons'])
+    capture_ready('icon-picker.png')
+    subprocess.check_call(['xcrun', 'simctl', 'ui', device, 'content_size', 'accessibility-large'])
+    capture_ready('icon-picker-large-text.png')
+    subprocess.check_call(['xcrun', 'simctl', 'terminate', device, 'ua.autosplit.scanner'])
+    subprocess.check_call(['xcrun', 'simctl', 'launch', device, 'ua.autosplit.scanner', '--preview-icons', '--verify-icon-switch'])
+    report = container / 'Documents/icon-switch-verification.json'
+    for _ in range(30):
+        if report.exists():
+            result = json.loads(report.read_text())
+            print('Native icon switch:', result, flush=True)
+            Path('design-preview/icon-switch-verification.json').write_text(report.read_text())
+            assert result['supported'] == 'true', 'Alternate icons are not available in the built app'
+            break
+        time.sleep(3)
+    else:
+        Path('design-preview/icon-switch-verification.json').write_text(json.dumps({'result': 'simulator-timeout'}))
+        print('Native icon switch: simulator timed out; physical-device check required', flush=True)
 finally:
     subprocess.run(['xcrun', 'simctl', 'shutdown', device], check=False)
     subprocess.run(['xcrun', 'simctl', 'delete', device], check=False)
