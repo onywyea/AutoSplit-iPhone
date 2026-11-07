@@ -25,12 +25,13 @@ enum StudioTab: String, CaseIterable {
 }
 
 struct StudioBackdrop: View {
-    enum Palette { case home, teal, green }
+    enum Palette { case home, teal, green, reader }
     let palette: Palette
 
     private var colors: [Color] {
         switch palette {
         case .home: return [.black, .black]
+        case .reader: return [Color(red: 0.035, green: 0.14, blue: 0.17), Color(red: 0.02, green: 0.06, blue: 0.08)]
         case .teal: return [Color(red: 0, green: 0.60, blue: 0.64), Color(red: 0.01, green: 0.17, blue: 0.19), Color(red: 0, green: 0.08, blue: 0.09)]
         case .green: return [Color(red: 0.48, green: 0.63, blue: 0.02), Color(red: 0.23, green: 0.34, blue: 0.01), Color(red: 0.08, green: 0.15, blue: 0)]
         }
@@ -44,43 +45,49 @@ struct StudioBackdrop: View {
     }
 }
 
-struct StudioDock: View {
-    @Environment(\.accessibilityReduceTransparency) private var reduced
-    let selection: StudioTab
-    let scanDisabled: Bool
-    let select: (StudioTab) -> Void
+struct StudioTabs: View {
+    @State private var selection = StudioTab.home
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(StudioTab.allCases, id: \.self) { tab in
-                Button { select(tab) } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: tab.icon).font(.system(size: 22, weight: .semibold))
-                        Text(tab.title).font(.caption2.weight(.medium)).lineLimit(1).minimumScaleFactor(0.75)
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 55)
-                    .background(.white.opacity(selection == tab ? 0.18 : 0), in: Capsule())
-                    .overlay {
-                        if selection == tab && !reduced {
-                            Capsule().strokeBorder(
-                                LinearGradient(colors: [.white.opacity(0.52), .clear, .cyan.opacity(0.30)],
-                                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                                lineWidth: 1
-                            ).allowsHitTesting(false)
-                        }
-                    }
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(selection == tab ? .isSelected : [])
-                .disabled(tab == .scan && scanDisabled)
+        Group {
+            if #available(iOS 26.0, *) {
+                modernTabs.tabBarMinimizeBehavior(.onScrollDown)
+            } else {
+                legacyTabs
             }
         }
-        .foregroundStyle(.white)
-        .padding(4)
-        .modifier(StudioGlassCapsule())
-        .padding(.horizontal, 16)
-        .padding(.vertical, 4)
+        .tint(.white)
+    }
+
+    @available(iOS 26.0, *)
+    private var modernTabs: some View {
+        TabView(selection: $selection) {
+            Tab("Головна", systemImage: "house.fill", value: StudioTab.home) {
+                LibraryView(initialTab: .home, shellSelection: $selection)
+            }
+            Tab("Сканер", systemImage: "scanner.fill", value: StudioTab.scan) {
+                LibraryView(initialTab: .scan, shellSelection: $selection)
+            }
+            Tab("Комплекти", systemImage: "square.stack.3d.up.fill", value: StudioTab.sets) {
+                LibraryView(initialTab: .sets, shellSelection: $selection)
+            }
+            Tab("Архів", systemImage: "archivebox.fill", value: StudioTab.archive) {
+                LibraryView(initialTab: .archive, shellSelection: $selection)
+            }
+            Tab("Пошук", systemImage: "magnifyingglass", value: StudioTab.search, role: .search) {
+                LibraryView(initialTab: .search, shellSelection: $selection)
+            }
+        }
+    }
+
+    private var legacyTabs: some View {
+        TabView(selection: $selection) {
+            ForEach(StudioTab.allCases, id: \.self) { tab in
+                LibraryView(initialTab: tab, shellSelection: $selection)
+                    .tabItem { Label(tab.title, systemImage: tab.icon) }
+                    .tag(tab)
+            }
+        }
     }
 }
 
@@ -117,7 +124,7 @@ struct StudioHero: View {
                     Image(systemName: "doc.viewfinder").font(.system(size: 85, weight: .light))
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 242)
+            .frame(maxWidth: .infinity, minHeight: 225)
             .accessibilityHidden(true)
 
             Text(document == nil ? "SCANFLOW" : "ОСТАННІЙ КОМПЛЕКТ")

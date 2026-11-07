@@ -8,7 +8,6 @@ struct DocumentView:View {
     @AppStorage("scanflow.studio") private var studio = true
     let documentID:UUID
     var startCamera=false
-    var studioNavigate: ((StudioTab) -> Void)? = nil
     @State private var didStartCamera=false
     @State private var capturing=false
     @State private var importing=false
@@ -73,7 +72,7 @@ struct DocumentView:View {
     private var navigationScreen:some View {
         workspaceContent
             .navigationTitle(studio ? (doc?.title ?? "Комплект") : "Документ").navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(studio ? .hidden : .automatic, for: .navigationBar)
+            .toolbarBackground(.automatic, for: .navigationBar)
             .toolbar {workspaceToolbar}
             .task(id:documentID) {await openDocument()}
             .onChange(of:pages.map(\.id)) {_,ids in selected.formIntersection(Set(ids))}
@@ -92,12 +91,7 @@ struct DocumentView:View {
                     ScanBackdrop()
                 }
             }.safeAreaInset(edge: .bottom) {
-                if studio && !ordering && !selecting && !pages.isEmpty && removed.isEmpty,
-                   let studioNavigate {
-                    StudioDock(selection: .sets, scanDisabled: blocked, select: studioNavigate)
-                } else {
-                    actionBar
-                }
+                if !studio || selecting || ordering || pages.isEmpty || !removed.isEmpty { actionBar }
             }
         } else {ContentUnavailableView("Скан недоступний",systemImage:"doc")}
     }
@@ -149,11 +143,44 @@ struct DocumentView:View {
                         }.padding(.horizontal, 18)
                     }.scrollIndicators(.hidden)
                     Text("Відомості про комплект").font(.title2.bold()).padding(.horizontal, 18)
-                    studioDetails
-                        .padding(.horizontal, 18)
+                    studioDetails.padding(.horizontal, 18)
+                    studioRelated
                 }
             }.padding(.vertical, 12)
         }.foregroundStyle(.white)
+    }
+
+    @ViewBuilder private var studioRelated: some View {
+        let related = Array(store.documents.filter {
+            $0.id != documentID && $0.folderID == doc?.folderID && !$0.pages.isEmpty
+        }.prefix(5))
+        if !related.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Інші комплекти").font(.title2.bold())
+                ForEach(related) { document in
+                    NavigationLink {
+                        DocumentView(documentID: document.id)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Thumb(file: document.pages.first?.output)
+                                .frame(width: 43, height: 57)
+                                .background(.white, in: RoundedRectangle(cornerRadius: 8))
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(document.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                                Text("\(document.pages.count) стор. · PDF")
+                                    .font(.caption).foregroundStyle(.white.opacity(0.66))
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        }
+                        .padding(14)
+                        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 23))
+                        .overlay(RoundedRectangle(cornerRadius: 23).strokeBorder(.white.opacity(0.16), lineWidth: 0.7))
+                    }.buttonStyle(.plain).disabled(blocked)
+                }
+            }.padding(18)
+        }
     }
 
     private func studioPageTile(_ page: Leaf) -> some View {
@@ -176,7 +203,7 @@ struct DocumentView:View {
 
     private var studioDetails: some View {
         VStack(alignment: .leading, spacing: 0) {
-            studioDetailRow("Сторінок: \(pages.count)", icon: "document.on.document")
+            studioDetailRow("Сторінок: \(pages.count)", icon: "doc.on.doc")
             Divider()
             studioDetailRow("Розпізнано: \(pages.filter(\.ocrReady).count) із \(pages.count)", icon: "text.viewfinder")
             Divider()

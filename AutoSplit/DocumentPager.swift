@@ -7,7 +7,7 @@ struct DocumentPager:UIViewControllerRepresentable {
     func makeCoordinator()->Coordinator {Coordinator(self)}
     func makeUIViewController(context:Context)->UIPageViewController {
         let pager=UIPageViewController(transitionStyle:.scroll,navigationOrientation:.horizontal)
-        pager.view.backgroundColor = .black
+        pager.view.backgroundColor = .clear
         pager.dataSource=context.coordinator;pager.delegate=context.coordinator
         context.coordinator.controller=pager
         for case let pan as UIPanGestureRecognizer in pager.gestureRecognizers {pan.maximumNumberOfTouches=1}
@@ -91,7 +91,7 @@ struct DocumentPager:UIViewControllerRepresentable {
     init(_ descriptor:BrowserPage){self.descriptor=descriptor;super.init(nibName:nil,bundle:nil)}
     required init?(coder:NSCoder){fatalError("init(coder:) is not supported")}
     override func viewDidLoad() {
-        super.viewDidLoad();view.backgroundColor = .black
+        super.viewDidLoad();view.backgroundColor = .clear
         scroll.delegate=self;scroll.minimumZoomScale=1;scroll.maximumZoomScale=5
         scroll.showsHorizontalScrollIndicator=false;scroll.showsVerticalScrollIndicator=false
         scroll.alwaysBounceHorizontal=false;scroll.alwaysBounceVertical=false

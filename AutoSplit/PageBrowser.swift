@@ -2,6 +2,7 @@ import SwiftUI
 
 struct PageBrowser:View {
     @EnvironmentObject var store:ScannerStore
+    @AppStorage("scanflow.studio") private var studio = true
     let documentID:UUID
     let initialPageID:UUID
     @State private var selection:UUID
@@ -32,15 +33,15 @@ struct PageBrowser:View {
                     Button {editing=true} label:{Label("За бажанням уточніть краї",systemImage:"crop").font(.caption.weight(.semibold)).padding(10)}.tint(.orange).disabled(store.busy)
                 }
                 DocumentPager(pages:pages.map {BrowserPage(id:$0.id,file:$0.output)},selection:$selection)
-                    .frame(maxWidth:.infinity,maxHeight:.infinity).layoutPriority(1)
+                    .frame(maxWidth:.infinity,maxHeight:.infinity).padding(.horizontal, studio ? 12 : 0).padding(.top, studio ? 8 : 0).layoutPriority(1)
                 if pages.count>1 {
                 ScrollViewReader { proxy in
                     ScrollView(.horizontal,showsIndicators:false) {
-                        LazyHStack(spacing:10) {
+                        LazyHStack(spacing: studio ? 12 : 10) {
                             ForEach(Array(pages.enumerated()),id:\.element.id) { index,page in
                                 Button {selection=page.id} label: {
                                     VStack(spacing:4) {
-                                        Thumb(file:page.output).frame(width:44,height:60).clipShape(RoundedRectangle(cornerRadius:5))
+                                        Thumb(file:page.output).frame(width: studio ? 38 : 44, height: studio ? 52 : 60).clipShape(RoundedRectangle(cornerRadius:5))
                                         Text("\(index+1)").font(.caption2.monospacedDigit()).foregroundStyle(selection==page.id ? Color.accent:.secondary)
                                     }.padding(4).overlay(RoundedRectangle(cornerRadius:8).stroke(selection==page.id ? Color.accent:.clear,lineWidth:2))
                                 }.id(page.id).buttonStyle(.plain)
@@ -48,9 +49,17 @@ struct PageBrowser:View {
                         }.padding(.horizontal,18).padding(.vertical,10)
                     }.onChange(of:selection) {_,id in withAnimation {proxy.scrollTo(id,anchor:.center)}}
                         .onAppear {proxy.scrollTo(selection,anchor:.center)}
-                }.frame(height:96)
+                }.frame(height: studio ? 82 : 96)
                 }
                 VStack(spacing:6) {
+                    if studio {
+                        HStack(spacing: 8) {
+                            if let page = selectedPage { PageReviewBadge(page: page).lineLimit(1) }
+                            Spacer()
+                            Text("\(position + 1) із \(pages.count)")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                        }.padding(.horizontal, 12).padding(.bottom, 7)
+                    } else {
                     HStack {
                         Button {step(-1)} label:{Image(systemName:"chevron.left").frame(width:44,height:44)}.disabled(position==0)
                         Spacer(minLength:0)
@@ -61,6 +70,7 @@ struct PageBrowser:View {
                         Button {step(1)} label:{Image(systemName:"chevron.right").frame(width:44,height:44)}.disabled(position+1>=pages.count)
                     }
                     toolsDock
+                    }
 
                 }.padding(.horizontal,14).padding(.bottom,8).disabled(store.busy)
 
@@ -68,11 +78,30 @@ struct PageBrowser:View {
             if !removed.isEmpty {
                 Button {let id=removed.first?.1.id;store.restorePages(documentID,removed:removed);removed=[];if let id {selection=id}} label:{Label("Скасувати видалення",systemImage:"arrow.uturn.backward").frame(minHeight:44)}.disabled(store.busy || store.savingPhotos>0)
             }
-        }.frame(maxWidth:.infinity,maxHeight:.infinity).background(.black)
+        }.frame(maxWidth:.infinity,maxHeight:.infinity)
+        .background {
+            if studio { StudioBackdrop(palette: .reader) } else { Color.black }
+        }
+        .toolbar(.hidden, for: .tabBar)
+        .toolbarBackground(.automatic, for: .navigationBar)
+        .toolbarBackground(.automatic, for: .bottomBar)
         .navigationTitle("\(pages.isEmpty ? 0:position+1) / \(pages.count)").navigationBarTitleDisplayMode(.inline).toolbar(cropPage == nil ? .visible : .hidden,for:.navigationBar)
         .toolbar {
+            if studio && cropPage == nil {
+                ToolbarItemGroup(placement: .bottomBar) {
+                    readerTool("Обрізати", icon: "crop") { cropPage = selectedPage }
+                    Spacer()
+                    readerTool("Повернути", icon: "rotate.right") { rotatePage() }
+                    Spacer()
+                    readerTool("Вигляд", icon: "slider.horizontal.3") { editing = true }
+                    Spacer()
+                    readerTool("PDF", icon: "square.and.arrow.up") { savePDF() }
+                }
+            }
             ToolbarItem(placement:.topBarTrailing) {
                 Menu {
+                    Button {nextIssue()} label: { Label("Наступна сторінка для перевірки", systemImage: "viewfinder") }
+                        .disabled(!pages.contains { $0.id != selection && $0.reviewReason != nil })
                     Button {exporting=true} label:{Label("Розмір / стиснення PDF",systemImage:"doc.zipper")}
                     Button {originals=true} label:{Label("Поділитися оригіналом",systemImage:"photo")}
                     Button {styling=true} label:{Label("Стиль усіх сторінок",systemImage:"slider.horizontal.3")}
@@ -120,6 +149,19 @@ struct PageBrowser:View {
             else if !store.shareURLs.isEmpty {quickSharing=true}
         }
     }
+    private func readerTool(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: 20, weight: .medium))
+                Text(title).font(.caption2)
+            }
+            .frame(minWidth: 48, minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .disabled(store.busy || store.savingPhotos > 0 || selectedPage == nil)
+        .accessibilityLabel(title)
+    }
+
     private var toolsDock:some View {
         ScanControls {
             HStack(spacing:4) {

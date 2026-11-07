@@ -13,7 +13,7 @@ struct ScanFlowApp:App {
     }
     var body: some Scene {
         WindowGroup {
-            LibraryView()
+            appRoot
                 .environmentObject(store)
                 .environment(\.locale, Locale(identifier: "uk_UA"))
                 .environment(\.scanTheme, theme)
@@ -22,13 +22,26 @@ struct ScanFlowApp:App {
                 .preferredColorScheme(studio ? .dark : theme.scheme)
         }
     }
+    @ViewBuilder private var appRoot: some View {
+        if studio { StudioTabs() } else { LibraryView() }
+    }
+
 }
 struct LibraryView:View {
     @EnvironmentObject var store:ScannerStore
     @State private var path:[UUID]=[]
     @State private var search=""
     @AppStorage("scanflow.studio") private var studio = true
-    @State private var studioTab = StudioTab.home
+    @State private var studioTab: StudioTab
+    var shellSelection: Binding<StudioTab>?
+    @State private var scannerStarted = false
+    @State private var heroIndex = 0
+    @ScaledMetric(relativeTo: .title) private var heroHeight = 470
+
+    init(initialTab: StudioTab = .home, shellSelection: Binding<StudioTab>? = nil) {
+        _studioTab = State(initialValue: initialTab)
+        self.shellSelection = shellSelection
+    }
     @FocusState private var searchFocused: Bool
     @Environment(\.scanTheme) private var theme
     @State private var selecting=false
@@ -69,6 +82,12 @@ struct LibraryView:View {
                     Button("Зрозуміло") {store.error=nil}
                 } message: {Text(store.error ?? "")}
         }
+        .onAppear {
+            if studio && studioTab == .scan && !scannerStarted {
+                scannerStarted = true
+                startScan()
+            }
+        }
     }
     // Distinct opaque view boundaries keep Xcode 16's constraint solver from
     // type-checking the complete list, toolbar and presentations as one tree.
@@ -90,12 +109,12 @@ struct LibraryView:View {
     private var libraryScreen:some View {
         libraryRoot
             .navigationTitle(studio ? studioTab.title : "ScanFlow")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden,for:.navigationBar)
+            .navigationBarTitleDisplayMode(studio ? .large : .inline)
+            .toolbarBackground(studio ? .automatic : .hidden, for: .navigationBar)
             .toolbar {libraryToolbar}
             .safeAreaInset(edge:.bottom) {bottomBar}
             .navigationDestination(for: UUID.self) { id in
-                DocumentView(documentID: id, startCamera: newCapture == id, studioNavigate: navigateFromDocument)
+                DocumentView(documentID: id, startCamera: newCapture == id)
             }
             .onChange(of:folder) {_,_ in selected=[]}
             .onChange(of:search) {_,_ in selected=[]}
@@ -120,6 +139,15 @@ struct LibraryView:View {
         switch studioTab {
         case .home: studioHome
         case .archive: StudioArchive()
+        case .search:
+            libraryList.searchable(text: $search, prompt: "ПІБ або назва документа")
+        case .scan:
+            VStack(spacing: 18) {
+                Image(systemName: "doc.viewfinder").font(.system(size: 64, weight: .light))
+                Text("Новий комплект").font(.title2.bold())
+                Button("Сканувати", action: startScan).scanPrimaryButton()
+                Button("Імпорт PDF або фото") { importing = true }.scanSecondaryButton()
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
         default: libraryList
         }
     }
@@ -127,9 +155,23 @@ struct LibraryView:View {
     private var studioHome: some View {
         let recent = Array(store.documents.filter { !$0.pages.isEmpty }.prefix(10))
         let latest = resume ?? recent.first
+        let featured = latest.map { first in
+            [first] + Array(recent.filter { $0.id != first.id }.prefix(3))
+        } ?? []
         return ScrollView {
-            StudioHero(document: latest, blocked: store.busy || store.savingPhotos > 0) {
-                if let latest { openDocument(latest.id) } else { startScan() }
+            if featured.isEmpty {
+                StudioHero(document: nil, blocked: store.busy || store.savingPhotos > 0, action: startScan)
+            } else {
+                TabView(selection: $heroIndex) {
+                    ForEach(Array(featured.enumerated()), id: \.element.id) { index, document in
+                        StudioHero(document: document, blocked: store.busy || store.savingPhotos > 0) {
+                            openDocument(document.id)
+                        }.tag(index)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: featured.count > 1 ? .automatic : .never))
+                .frame(height: heroHeight)
+                .onChange(of: featured.map(\.id)) { _, _ in heroIndex = 0 }
             }
             VStack(alignment: .leading, spacing: 18) {
                 if !recent.isEmpty {
@@ -162,35 +204,20 @@ struct LibraryView:View {
     }
 
     private func selectTab(_ tab: StudioTab) {
-        if tab == .scan { startScan(); return }
-        guard tab != studioTab else {
-            if tab == .search { searchFocused = true }
-            return
-        }
-        selecting = false
-        selected = []
-        search = ""
-        searchFocused = false
-        if tab == .search { folder = "all" }
-        studioTab = tab
-    }
-
-    private func navigateFromDocument(_ tab: StudioTab) {
-        if tab == .scan {
-            startScan(replacingPath: true)
+        if let shellSelection {
+            shellSelection.wrappedValue = tab
+        } else if tab == .scan {
+            startScan()
         } else {
-            path = []
-            selectTab(tab)
+            studioTab = tab
         }
     }
 
-    private func startScan() { startScan(replacingPath: false) }
-
-    private func startScan(replacingPath: Bool) {
+    private func startScan() {
         guard !store.busy, store.savingPhotos == 0 else { return }
         let id = store.newDocument(folderID: !studio || studioTab == .sets ? currentFolder : nil)
         newCapture = id
-        if replacingPath { path = [id] } else { path.append(id) }
+        path.append(id)
     }
 
     @ViewBuilder private var searchableLibrary: some View {
@@ -223,7 +250,7 @@ struct LibraryView:View {
         ScrollView {
             LazyVStack(alignment:.leading,spacing:14) {
             if !studio && !selecting && (search.isEmpty || theme != .system) { LibraryBrandSection() }
-            if studio ? studioTab == .search : theme != .system {
+            if !studio && theme != .system {
                 librarySearch.onAppear { if studio && studioTab == .search { searchFocused = true } }
             }
             if !studio && !selecting && search.isEmpty {
@@ -326,9 +353,7 @@ struct LibraryView:View {
             VStack(spacing:10) {
                 if store.busy {HStack {ProgressView();Text(store.status).font(.caption).lineLimit(1)}}
                 if selecting {selectionDock}
-                else if studio {
-                    StudioDock(selection: studioTab, scanDisabled: store.busy || store.savingPhotos > 0, select: selectTab)
-                } else {captureDock}
+                else if !studio {captureDock}
             }.padding(.horizontal, studio && !selecting ? 0 : 18).padding(.vertical, studio && !selecting ? 0 : 10)
         }
     }
