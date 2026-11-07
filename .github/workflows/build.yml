@@ -88,8 +88,9 @@ jobs:
           assert info['LSSupportsOpeningDocumentsInPlace'] is True
           assert info['CFBundleIdentifier'] == 'ua.autosplit.scanner'
           assert info['CFBundleShortVersionString'] == '0.4.23'
-          assert info['CFBundleVersion'] == '43'
+          assert info['CFBundleVersion'] == '44'
           icons = info['CFBundleIcons']
+          print('Compiled app icons:', icons)
           assert icons['CFBundlePrimaryIcon']['CFBundleIconName'] == 'ScanFlowIcon'
           assert set(icons['CFBundleAlternateIcons']) == {'ScanFlowPearl','ScanFlowGraphite','ScanFlowClassic'}
           PYCODE
@@ -98,11 +99,12 @@ jobs:
           zip -qr ScanFlow-0.4.23.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ScanFlow-0.4.23-build43
+          name: ScanFlow-0.4.23-build44
           path: ScanFlow-0.4.23.ipa
           retention-days: 7
 
   preview:
+    if: ${{ !contains(github.event.head_commit.message, '[package only]') }}
     name: Native home design preview
     runs-on: macos-26-intel
     timeout-minutes: 25
