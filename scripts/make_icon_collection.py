@@ -2,6 +2,8 @@
 from pathlib import Path
 import json
 root = Path(__file__).resolve().parents[1] / 'AutoSplit'
+if any('artwork_sha256' in item for item in json.loads((root / 'IconCollection.json').read_text())):
+    raise SystemExit('Historical vector generator is disabled: preserve the approved illustrated artwork in the 30-icon collection.')
 def path(d, width=0):
     return f'<path d="{d}" fill="none" stroke="white" stroke-width="{width}" stroke-linecap="round" stroke-linejoin="round"/>' if width else f'<path d="{d}" fill="white"/>'
 def rect(x,y,w,h,r=30): return f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{r}" fill="white"/>'

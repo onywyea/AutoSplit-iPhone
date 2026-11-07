@@ -1,18 +1,30 @@
-# ScanFlow 0.4.24 — ten new Liquid Glass icons
+# ScanFlow 0.4.25 — 30 illustrated icon choices
 
-Date: 2026-11-07
-Production app/assets source: b8ed1963794970e067de4c8c6d51aabd8b956e4d, build 46. Subsequent changes are limited to this report and screenshot-runner cleanup/time limits.
+Production app/assets source: a998bd5be4743ff6a09b3445672d04582b320c80; build 47. Subsequent report/generator-guard changes do not modify the app payload.
 
-Collection: Prism, Stack, Lens, Ribbon S, Portal, Folio, Orbit, Wave, Archive, Facet. These are ten different vector silhouettes, not ten recolors. Each .icon package contains separate native glass optical groups. The four previous choices remain available; existing system icon selection is preserved. The picker shows the new collection first. IconCollection.json, Swift case names, compiler alternate-icon settings and package manifests are cross-checked.
+The user approved both earlier ten-image collections and requested another ten in the same Apple system Liquid Glass illustration style, with all thirty included. The picker groups them into Pearl 01–10, Colored Glass 11–20, and New Collection 21–30. Four legacy choices remain in a disclosure group. Existing compiler names are retained for the first ten slots and legacy icons; twenty additional names are registered. IconCollection.json is the numbering/name/artwork-hash source of truth.
 
-GitHub Actions run 42400058046: device build job 128485684630 passed, artifact 13585750483 (ScanFlow-0.4.24-build46). Scanner core, 16 display-name assertions, native Vision direction checks, ZIP/Ukrainian filename checks, icon resource references, Release compilation and package metadata assertions passed. The actual IPA contains one primary icon, exactly 13 alternate icon names and 14 native-compiled preview PNGs. All ten new preview image digests are distinct. All ten source layer-one silhouettes are distinct and SVG files parse correctly.
+Every new icon uses the actual approved/generated raster illustration, resized to opaque RGB 1024×1024, with pixel equality checked against the resized source. Each Icon Composer package has a single Artwork.png layer, glass false, specular false, and no group shadow, preserving the illustration instead of replacing it with a simplified vector glyph or applying another distortion. These are rendered glass illustrations, not claims of independently animated native optical layers. The thirty 180×180 picker previews use the same artwork, resized with sips. The four legacy previews use actool fallbacks. The historical vector generator is guarded against overwriting this illustrated collection; executing it was checked to leave all thirty artwork hashes unchanged.
 
-IPA: 32,974,873 bytes; SHA-256 1fa125db68c4b7b64db4d981d89e7f52c96f073e386982c2468f56e01790d695. Outer artifact digest was checked before extracting it. Bundle identifier and file-sharing settings remain correct. The contact sheet is assembled from actual compiler-generated fallback images extracted from this IPA, masked like the picker thumbnails, with no alternate hand-drawn icon artwork.
+GitHub Actions run 42418279355: device job 128540989876 and native gallery job 128540989568 both succeeded. Xcode 26.6, iOS SDK 26.5. All 293 scanner checks, 16 display-title checks, native Vision direction checks, ZIP integrity/Ukrainian filenames, package/artwork integrity, resource references, Release and Debug simulator compilation, and bundle/icon metadata checks passed.
 
-Visual evidence: preview artifact 13585059654 from the same source/run. Manually inspected icons-prism-large.png, icons-portal-large.png, icons-archive-large.png and icons-prism-accessibility-large.png. All ten new images appear in the scrolled native picker. Labels fit, previous icons remain visible at the bottom, and accessibility-large uses a single-column scroll layout with card contents fitting. Preview image digest: 418ac8e231b944a38cdce6a8c4a0f9507234663a034f9fbc59e52b13efc2f421.
+Device artifact 13592388353: 315,854,901 bytes, SHA-256 6317375a7b29e0a1078b7fa2bd0f7816f5c653f559fcabe805b5f15888114e52. The artifact was downloaded in bounded ranges and its digest verified before extraction. IPA: 315,778,281 bytes, SHA-256 b717e47dc8732be433da0ba4d75911ef883f8e1fb499d2af4ab0973c2091de9b. Both ZIP CRC checks passed. Actual Info.plist confirms version 0.4.25/47, ua.autosplit.scanner, file sharing, one primary and exactly 33 alternate names. All 34 preview files are present, all thirty new previews decode at 180×180 and have distinct digests. The compiled Assets.car accounts for most of the approximately 316 MB package.
 
-The preview job is marked cancelled: it reached its 15-minute limit after all four screenshots were captured, while shutting down the simulator. Logs show the last successful capture at 18:27:03 UTC, followed by cancellation at 18:27:16 UTC. This is not recorded as an entirely green preview workflow. Cleanup now has a 15-second timeout and the preview job has a 20-minute budget; Python syntax validation passed. These test-harness-only changes do not require rebuilding the delivered app.
+Native gallery artifact 13592492394: 7,559,389 bytes, SHA-256 d5f9f471bd6667765d481ebd8f37a498b807b82c166b7d84b03461b09400cd97. Digest and ZIP CRC verified. All ten screenshots decoded and were reviewed together: prism, portal, archive, art201, art205, art209, art301, art305, art309 at large, plus art309 at accessibility-large. Across the overlapping frames, all thirty illustrations are visible and labels/buttons fit. Accessibility-large uses a single column and the final two cards fit completely. The art305 launch did not land at its intended anchor and showed the top instead; the art301/art309 frames cover that entire collection, so this does not leave a visual coverage gap. No automatic assertion of perfect anchor navigation is claimed.
 
-The production icon-switch API/handler is unchanged from 0.4.23. Actual Home Screen icon switching and optical effects on a physically signed iPhone remain unverified; the prior automatic simulator switch probe timed out. No successful physical-device or automatic switch test is claimed.
+Actual icon switching on a physically signed iPhone, system tinting/clear appearance and Home Screen caching remain unverified. The production public UIApplication icon-switch handler and actual-selected-state tracking are unchanged. No successful physical-device or automatic switching probe is claimed.
 
-Result: app build, icon package verification and manual native gallery visual checks passed; physical Home Screen switching remains unverified.
+## Additional ten artwork briefs
+
+Generated with the built-in image generation tool, using the supplied Apple system icon reference image IMG_5049.jpeg. Shared direction: one square production scanner icon, softly dimensional translucent glass, restrained edge refraction and highlights, centered legible silhouette, no text/watermark/sparkles, full-bleed background. Source artwork remains in the thirty packages and is not regenerated by build scripts.
+
+21. Mint/teal scanner arch and pearl document.
+22. Amber glass paperclip and ivory folded-corner page on orange/coral.
+23. Unfolding blue/violet glass folio and pearl central page on ivory.
+24. Opal S ribbon ending in a document on violet/indigo.
+25. Emerald/mint archive inbox with two ivory documents on ivory.
+26. Sapphire lens integrated into overlapping pearl pages on sky blue.
+27. Rose glass folder, ivory document and check seal on graphite/plum.
+28. Pearl page with cyan/blue/violet/coral scanning corners on ivory.
+29. Cyan/magenta/orange glass document fan on midnight navy.
+30. Cyan/lilac glass seal rings around a pearl document on sky blue/lavender.
