@@ -78,6 +78,8 @@ jobs:
           xcodebuild -project AutoSplit.xcodeproj -scheme AutoSplit
           -configuration Release -sdk iphoneos -destination 'generic/platform=iOS'
           -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Render exact icon selection previews
+        run: python3 scripts/render_icon_previews.py --platform iphoneos --app build/Build/Products/Release-iphoneos/AutoSplit.app
       - name: Verify file sharing and package unsigned IPA
         run: |
           python3 - <<'PYCODE'
@@ -88,7 +90,7 @@ jobs:
           assert info['LSSupportsOpeningDocumentsInPlace'] is True
           assert info['CFBundleIdentifier'] == 'ua.autosplit.scanner'
           assert info['CFBundleShortVersionString'] == '0.4.23'
-          assert info['CFBundleVersion'] == '44'
+          assert info['CFBundleVersion'] == '45'
           icons = info['CFBundleIcons']
           print('Compiled app icons:', icons)
           assert icons['CFBundlePrimaryIcon']['CFBundleIconName'] == 'ScanFlowIcon'
@@ -99,7 +101,7 @@ jobs:
           zip -qr ScanFlow-0.4.23.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ScanFlow-0.4.23-build44
+          name: ScanFlow-0.4.23-build45
           path: ScanFlow-0.4.23.ipa
           retention-days: 7
 
@@ -145,9 +147,12 @@ jobs:
           xcodebuild -project AutoSplit.xcodeproj -scheme AutoSplit \
             -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO ARCHS=x86_64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
+      - name: Render exact simulator icon selection previews
+        run: python3 scripts/render_icon_previews.py --platform iphonesimulator --app preview-build/Build/Products/Debug-iphonesimulator/AutoSplit.app
       - name: Capture home and large text layout
         run: python3 scripts/preview_home.py
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ScanFlow-0.4.23-design-preview
           path: design-preview/

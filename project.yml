@@ -33,7 +33,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         MARKETING_VERSION: '0.4.23'
-        CURRENT_PROJECT_VERSION: 44
+        CURRENT_PROJECT_VERSION: 45
         CODE_SIGNING_ALLOWED: NO
     scheme:
       testTargets: []

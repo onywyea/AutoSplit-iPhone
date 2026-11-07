@@ -20,14 +20,6 @@ enum ScanAppIcon: String, CaseIterable, Identifiable {
         case .classic: return "Сканер"
         }
     }
-    var colors: [Color] {
-        switch self {
-        case .glass: return [Color(red:0.025, green:0.65, blue:0.68), Color(red:0.015, green:0.18, blue:0.25)]
-        case .pearl: return [Color(red:0.69, green:0.79, blue:0.85), Color(red:0.24, green:0.35, blue:0.47)]
-        case .graphite: return [Color(red:0.23, green:0.25, blue:0.30), Color(red:0.035, green:0.045, blue:0.075)]
-        case .classic: return [.purple, .black]
-        }
-    }
     static var current: Self {
         allCases.first { $0.name == UIApplication.shared.alternateIconName } ?? .glass
     }
@@ -44,7 +36,7 @@ struct AppIconPicker: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Text("Іконка на екрані iPhone").font(.title2.bold())
-                Text("Оберіть іконку. Тема та документи залишаться такими, як ви їх налаштували.")
+                Text("Оберіть іконку для головного екрана iPhone.")
                     .foregroundStyle(.secondary)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: textSize.isAccessibilitySize ? 260 : 140), spacing: 16)], spacing: 16) {
                     ForEach(ScanAppIcon.allCases) { icon in
@@ -68,7 +60,7 @@ struct AppIconPicker: View {
                         .accessibilityAddTraits(current == icon ? .isSelected : [])
                     }
                 }
-                Text("Скляні іконки складаються з окремих шарів Icon Composer. Їхній вигляд на головному екрані залежить від оформлення iOS; прев’ю показує статичний вигляд цих самих іконок.")
+                Text("Вигляд скла залежить від світлого, темного або прозорого оформлення іконок у налаштуваннях iPhone.")
                     .font(.footnote).foregroundStyle(.secondary)
             }.padding(20)
         }
@@ -91,6 +83,12 @@ struct AppIconPicker: View {
     @MainActor private func verifyNativeSwitch() {
         Task { @MainActor in
             var report: [String: String] = ["supported": String(UIApplication.shared.supportsAlternateIcons)]
+            for _ in 0..<30 {
+                if UIApplication.shared.applicationState == .active { break }
+                try? await Task.sleep(nanoseconds: 100_000_000)
+            }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            report["applicationActive"] = String(UIApplication.shared.applicationState == .active)
             do {
                 try await UIApplication.shared.setAlternateIconName(ScanAppIcon.pearl.name)
                 current = .current
@@ -130,7 +128,7 @@ struct AppIconPreview: View {
     let icon: ScanAppIcon
     var body: some View {
         let name = icon.name ?? "ScanFlowIcon"
-        if let image = UIImage(named: name + "60x60") {
+        if let image = UIImage(named: "IconPreview-" + name) {
             Image(uiImage: image).resizable().scaledToFit().clipShape(RoundedRectangle(cornerRadius: 22)).accessibilityHidden(true)
         } else {
             Image(systemName: "app").resizable().scaledToFit().padding(16).foregroundStyle(.secondary).accessibilityHidden(true)
