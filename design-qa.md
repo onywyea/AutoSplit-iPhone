@@ -1,28 +1,18 @@
-# ScanFlow 0.4.22 visual QA
-
-Scope: centered home subject, description and Continue action; circular appearance wordmark; selected glass scanner app artwork.
-
-final result: pending
-
-# ScanFlow 0.4.21 home hero — visual QA
+# ScanFlow 0.4.23 — selectable Liquid Glass app icons
 
 Date: 2026-11-07
+Production source: 515ce9f3db5d81f21c8a688caef77ac780c75b81; build 45.
 
-Visual target: second displayed concept, with a three-page fan, left-aligned readable document identity and Continue action. Native iOS chrome adapts to the device rather than reproducing image-generated system chrome.
+Implemented: Appearance > App icon; three native Icon Composer icons (teal, pearl, graphite) plus the prior scanner artwork. New icons contain separate glass document, capture-frame and detail groups. Selection uses UIApplication.setAlternateIconName; the selected state is read from UIApplication, updates after returning to the app, and is not advanced on error. Duplicate requests are disabled while pending. Release builds exclude the simulator probe and preview launch route.
 
-Production app source: 78e8cef6c640a3f152ae312b86122165dedfe211. Preview source: cca1abb9f6573aacc20957298c0681df8c62f5f4; subsequent changes were restricted to screenshot readiness and CI configuration, with no production app code changes.
+The compiler emits alternate icons in Assets.car without normal UIImage-accessible PNGs. scripts/render_icon_previews.py compiles each actual .icon package separately and copies only its static fallback thumbnail to the built app. Both device and simulator workflows run this step before packaging/installing. For manual builds, run that script with the matching --platform and --app output path before installing. Do not hand-draw replacement previews or edit generated CFBundleIcons.
 
-Evidence: GitHub Actions run 42386940087, artifact 13580700493, home.png and home-large-text.png. iPhone 15 Pro simulator, 393 × 852 points, standard text and accessibility-large. Synthetic document fixtures; no customer document data.
+Validation: GitHub Actions run 42396504450. Device artifact 13584170893 (ScanFlow-0.4.23-build45); preview artifact 13584565934. Device Release and simulator Debug builds passed. Scanner core, 16 document display-name assertions, native Vision direction checks, ZIP integrity and Ukrainian filename checks passed. Generated plist contains the primary and exactly three alternate icon names. All four thumbnails are present, distinct, and were visually inspected from the IPA. Bundle identifier and file sharing remain correct.
 
-Verified by visual comparison:
-- Three complete paper silhouettes fit below the header; the front page is upright and its top is visible.
-- Readable subject and relationship appear on separate lines, without changing stored/exported filenames.
-- The reduced fan and tighter spacing leave the recent thumbnail row visible at standard text size.
-- The Continue label and arrow fit inside the glass action at accessibility-large, with horizontal padding.
-- The continuous background has no separate rectangular hero surface.
+IPA: 12,768,567 bytes; SHA-256 23fe15868461279534f6fba4c7075714e037f943bf1166aad747831e83a114d2.
 
-Initial native capture showed an oversized fan and insufficient padding on the accessible action. These were corrected. A subsequent capture showed the launch screen and was rejected; the harness now waits for a nonblank frame before capture. The final captures were manually inspected.
+Native screenshots inspected: icon-picker.png and icon-picker-large-text.png, iPhone 15 Pro simulator. All four actual previews render in the ordinary two-column layout. Accessibility-large switches to a single-column scroll layout; visible card contents fit. Earlier missing alternate thumbnails were detected in native captures and corrected before delivery.
 
-Validation: device Release build, 16 display-name assertions, existing scanner core checks, native Vision orientation checks, ZIP integrity and IPA metadata/digest checks passed. Physical-device gestures and camera behavior were outside this layout check. Existing native tab-bar/search-role behavior and recent filenames remain outside the hero redesign scope.
+Runtime limitation: the automatic icon-switch probe in the simulator did not return within 90 seconds (icon-switch-verification.json: simulator-timeout). An earlier probe reported supportsAlternateIcons=true but was cancelled by the simulator. These are NOT successful Home Screen switch tests. A real signed iPhone install is still required to verify the system confirmation and icon change. Production error handling remains in place; no private APIs or silent icon changes are used.
 
-final result: passed
+Result: build, package and picker visual checks passed; actual Home Screen switching is unverified on a physical iPhone.
