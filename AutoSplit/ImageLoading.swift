@@ -38,16 +38,17 @@ final class ScanImageLoader {
 }
 struct CachedScanThumbnail:View {
     let file:String?
+    var limit: Int = 220
     @State private var image:UIImage?
     var body:some View {
         ZStack {
             Color.white
             if let image {Image(uiImage:image).resizable().scaledToFit()}
             else {Image(systemName:"doc.text").foregroundStyle(Color.accent.opacity(0.5))}
-        }.task(id:file) {
+        }.task(id: (file ?? "") + "@" + String(limit)) {
             image=nil
             guard let file else {return}
-            let decoded=await ScanImageLoader.shared.image(file,limit:220)
+            let decoded=await ScanImageLoader.shared.image(file,limit:limit)
             guard !Task.isCancelled else {return}
             image=decoded
         }

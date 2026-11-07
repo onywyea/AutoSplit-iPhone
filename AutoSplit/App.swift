@@ -37,7 +37,6 @@ struct LibraryView:View {
     var captureFolder: Binding<String>?
     @State private var scannerStarted = false
     @State private var heroIndex = 0
-    @ScaledMetric(relativeTo: .title) private var heroHeight = 470
 
     init(initialTab: StudioTab = .home, shellSelection: Binding<StudioTab>? = nil, captureFolder: Binding<String>? = nil) {
         _studioTab = State(initialValue: initialTab)
@@ -177,16 +176,34 @@ struct LibraryView:View {
             if featured.isEmpty {
                 StudioHero(document: nil, blocked: store.busy || store.savingPhotos > 0, action: startScan)
             } else {
-                TabView(selection: $heroIndex) {
-                    ForEach(Array(featured.enumerated()), id: \.element.id) { index, document in
-                        StudioHero(document: document, blocked: store.busy || store.savingPhotos > 0) {
-                            openDocument(document.id)
-                        }.tag(index)
-                    }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 0) {
+                        ForEach(Array(featured.enumerated()), id: \.element.id) { index, document in
+                            StudioHero(document: document, blocked: store.busy || store.savingPhotos > 0) {
+                                openDocument(document.id)
+                            }
+                            .containerRelativeFrame(.horizontal)
+                            .id(index)
+                        }
+                    }.scrollTargetLayout()
                 }
-                .tabViewStyle(.page(indexDisplayMode: featured.count > 1 ? .automatic : .never))
-                .frame(height: heroHeight)
+                .scrollTargetBehavior(.paging)
+                .scrollPosition(id: Binding<Int?>(get: { heroIndex }, set: { if let index = $0 { heroIndex = index } }))
+                .fixedSize(horizontal: false, vertical: true)
                 .onChange(of: featured.map(\.id)) { _, _ in heroIndex = 0 }
+                if featured.count > 1 {
+                    HStack(spacing: 0) {
+                        ForEach(featured.indices, id: \.self) { index in
+                            Button { withAnimation(.easeInOut(duration: 0.25)) { heroIndex = index } } label: {
+                                Circle().fill(.white.opacity(heroIndex == index ? 1 : 0.4))
+                                    .frame(width: 7, height: 7).frame(width: 24, height: 32)
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                                .accessibilityLabel("Комплект \(index + 1) із \(featured.count)")
+                                .accessibilityValue(heroIndex == index ? "Вибрано" : "")
+                        }
+                    }.frame(maxWidth: .infinity).padding(.bottom, 12)
+                }
             }
             VStack(alignment: .leading, spacing: 18) {
                 if !recent.isEmpty {
@@ -200,7 +217,9 @@ struct LibraryView:View {
                                             .frame(width: 77, height: 86)
                                             .background(.white, in: RoundedRectangle(cornerRadius: 16))
                                             .clipShape(RoundedRectangle(cornerRadius: 16))
-                                        Text(document.title).font(.caption).lineLimit(2).frame(width: 77)
+                                        Text(StudioDocumentText(title: document.title, personName: document.personName,
+                                                                suffix: document.nameSuffix).title)
+                                            .font(.caption).lineLimit(2).frame(width: 77)
                                     }.accessibilityElement(children: .combine)
                                 }.buttonStyle(.plain).disabled(store.busy || store.savingPhotos > 0)
                             }

@@ -49,6 +49,8 @@ jobs:
           python3 scripts/check_package.py
           swiftc AutoSplit/Rules.swift AutoSplit/RimSeal.swift tests/main.swift -o core-tests
           ./core-tests
+          swiftc AutoSplit/Rules.swift AutoSplit/StudioPresentation.swift tests/StudioPresentationTests.swift -o presentation-tests
+          ./presentation-tests
       - name: Check compact document direction with native Vision
         run: |
           swiftc AutoSplit/Rules.swift AutoSplit/Orientation.swift tests/VisionOrientation.swift -o vision-tests
@@ -84,14 +86,63 @@ jobs:
           assert info['UIFileSharingEnabled'] is True
           assert info['LSSupportsOpeningDocumentsInPlace'] is True
           assert info['CFBundleIdentifier'] == 'ua.autosplit.scanner'
-          assert info['CFBundleShortVersionString'] == '0.4.20'
-          assert info['CFBundleVersion'] == '39'
+          assert info['CFBundleShortVersionString'] == '0.4.21'
+          assert info['CFBundleVersion'] == '40'
           PYCODE
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/AutoSplit.app Payload/
-          zip -qr ScanFlow-0.4.20.ipa Payload
+          zip -qr ScanFlow-0.4.21.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ScanFlow-0.4.20-build39
-          path: ScanFlow-0.4.20.ipa
+          name: ScanFlow-0.4.21-build40
+          path: ScanFlow-0.4.21.ipa
+          retention-days: 7
+
+  preview:
+    name: Native home design preview
+    runs-on: macos-26-intel
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select installed Xcode for Liquid Glass
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import glob, os, re, plistlib
+          candidates=glob.glob('/Applications/Xcode*.app')
+          def version(path):
+              try:
+                  with open(path+'/Contents/Info.plist','rb') as stream:
+                      label=plistlib.load(stream).get('CFBundleShortVersionString','')
+              except (OSError,ValueError):
+                  label=os.path.basename(path)
+              numbers=re.findall(r'\d+',label)
+              return tuple(int(n) for n in numbers) if numbers else (0,)
+          modern=[p for p in candidates if (26,)<=version(p)<(27,) and 'beta' not in p.lower()]
+          if modern:
+              chosen=max(modern,key=version)+'/Contents/Developer'
+              with open(os.environ['GITHUB_ENV'],'a') as stream:
+                  stream.write('DEVELOPER_DIR='+chosen+'\n')
+              print('Using '+chosen)
+          else:
+              raise SystemExit('::error::Stable Xcode 26 is missing. Use macos-26-intel and the complete workflow from ScanFlow 0.4.2.')
+          PYCODE
+      - name: Generate simulator project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+          python3 scripts/verify_icon_project.py
+      - name: Build native simulator app
+        run: |
+          xcodebuild -project AutoSplit.xcodeproj -scheme AutoSplit \
+            -configuration Release -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
+      - name: Capture home and large text layout
+        run: python3 scripts/preview_home.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScanFlow-0.4.21-design-preview
+          path: design-preview/*.png
           retention-days: 7

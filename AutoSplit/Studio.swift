@@ -166,43 +166,85 @@ struct StudioHero: View {
     let blocked: Bool
     let action: () -> Void
 
-    var body: some View {
-        VStack(spacing: 8) {
-            ZStack {
-                if let file = document?.pages.first?.output {
-                    Thumb(file: file)
-                        .frame(width: 163, height: 209)
-                        .background(.white, in: RoundedRectangle(cornerRadius: 6))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .rotationEffect(.degrees(-12))
-                        .shadow(color: .black.opacity(0.4), radius: 16, y: 10)
-                } else {
-                    Image(systemName: "doc.viewfinder").font(.system(size: 85, weight: .light))
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 225)
-            .accessibilityHidden(true)
+    private var label: StudioDocumentText {
+        StudioDocumentText(title: document?.title ?? "Скануйте документи",
+                           personName: document?.personName, suffix: document?.nameSuffix)
+    }
 
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            StudioPageFan(files: Array((document?.pages ?? []).prefix(3).map(\.output)))
+                .padding(.bottom, 6)
             Text(document == nil ? "SCANFLOW" : "ОСТАННІЙ КОМПЛЕКТ")
-                .font(.caption.weight(.semibold)).tracking(1).foregroundStyle(.white.opacity(0.74))
-            Text(document?.title ?? "Скануйте документи")
-                .font(.title.bold()).multilineTextAlignment(.center).lineLimit(2)
+                .font(.caption.weight(.medium)).tracking(1.5)
+                .foregroundStyle(.white.opacity(0.72))
+            Text(label.title)
+                .font(.largeTitle.bold()).lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+            if !label.detail.isEmpty {
+                Text(label.detail).font(.title3).foregroundStyle(.white.opacity(0.9))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let document {
-                Text("\(document.pages.count) стор. · PDF").font(.subheadline).foregroundStyle(.white.opacity(0.75))
+                Text("\(document.pages.count) стор. · PDF")
+                    .font(.subheadline).foregroundStyle(.white.opacity(0.65))
             }
             Button(action: action) {
-                Text(document == nil ? "Новий скан" : "Продовжити")
-                    .font(.headline).frame(maxWidth: 245, minHeight: 48)
-                    .modifier(StudioGlassCapsule())
-                    .contentShape(Capsule())
+                HStack(spacing: 14) {
+                    Text(document == nil ? "Новий скан" : "Продовжити")
+                    Image(systemName: "arrow.right")
+                }
+                .font(.headline).frame(maxWidth: 260, minHeight: 50)
+                .modifier(StudioGlassCapsule()).contentShape(Capsule())
             }
-            .buttonStyle(.plain).disabled(blocked).padding(.top, 7)
+            .buttonStyle(.plain).disabled(blocked).padding(.top, 6)
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 42)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
 
+    }
+}
+
+struct StudioPageFan: View {
+    let files: [String]
+    @Environment(\.accessibilityReduceMotion) private var reducedMotion
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = min(proxy.size.width, 360)
+            let pageWidth = width * 0.43
+            let pageHeight = pageWidth * 1.4142
+            ZStack {
+                if files.count > 1 {
+                    paper(files[1], width: pageWidth * 0.96, height: pageHeight * 0.96)
+                        .rotationEffect(.degrees(reducedMotion ? 0 : -9))
+                        .offset(x: -width * 0.22, y: 3)
+                }
+                if files.count > 2 {
+                    paper(files[2], width: pageWidth * 0.96, height: pageHeight * 0.96)
+                        .rotationEffect(.degrees(reducedMotion ? 0 : 9))
+                        .offset(x: width * 0.22, y: 3)
+                }
+                if let first = files.first {
+                    paper(first, width: pageWidth, height: pageHeight)
+                } else {
+                    Image(systemName: "doc.viewfinder")
+                        .font(.system(size: 72, weight: .light)).foregroundStyle(.white.opacity(0.9))
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .frame(height: 236)
+        .accessibilityHidden(true)
+    }
+
+    private func paper(_ file: String, width: CGFloat, height: CGFloat) -> some View {
+        CachedScanThumbnail(file: file, limit: 720)
+            .frame(width: width, height: height)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .shadow(color: .black.opacity(0.24), radius: 9, y: 7)
     }
 }
 
