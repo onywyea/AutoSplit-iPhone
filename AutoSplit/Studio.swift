@@ -47,6 +47,7 @@ struct StudioBackdrop: View {
 
 struct StudioTabs: View {
     @State private var selection = StudioTab.home
+    @State private var captureFolder = "all"
 
     var body: some View {
         Group {
@@ -63,19 +64,19 @@ struct StudioTabs: View {
     private var modernTabs: some View {
         TabView(selection: $selection) {
             Tab("Головна", systemImage: "house.fill", value: StudioTab.home) {
-                LibraryView(initialTab: .home, shellSelection: $selection)
+                LibraryView(initialTab: .home, shellSelection: $selection, captureFolder: $captureFolder)
             }
             Tab("Сканер", systemImage: "scanner.fill", value: StudioTab.scan) {
-                LibraryView(initialTab: .scan, shellSelection: $selection)
+                LibraryView(initialTab: .scan, shellSelection: $selection, captureFolder: $captureFolder)
             }
             Tab("Комплекти", systemImage: "square.stack.3d.up.fill", value: StudioTab.sets) {
-                LibraryView(initialTab: .sets, shellSelection: $selection)
+                LibraryView(initialTab: .sets, shellSelection: $selection, captureFolder: $captureFolder)
             }
             Tab("Архів", systemImage: "archivebox.fill", value: StudioTab.archive) {
-                LibraryView(initialTab: .archive, shellSelection: $selection)
+                LibraryView(initialTab: .archive, shellSelection: $selection, captureFolder: $captureFolder)
             }
             Tab("Пошук", systemImage: "magnifyingglass", value: StudioTab.search, role: .search) {
-                LibraryView(initialTab: .search, shellSelection: $selection)
+                LibraryView(initialTab: .search, shellSelection: $selection, captureFolder: $captureFolder)
             }
         }
     }
@@ -83,7 +84,7 @@ struct StudioTabs: View {
     private var legacyTabs: some View {
         TabView(selection: $selection) {
             ForEach(StudioTab.allCases, id: \.self) { tab in
-                LibraryView(initialTab: tab, shellSelection: $selection)
+                LibraryView(initialTab: tab, shellSelection: $selection, captureFolder: $captureFolder)
                     .tabItem { Label(tab.title, systemImage: tab.icon) }
                     .tag(tab)
             }

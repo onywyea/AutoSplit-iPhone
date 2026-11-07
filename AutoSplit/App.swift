@@ -34,13 +34,15 @@ struct LibraryView:View {
     @AppStorage("scanflow.studio") private var studio = true
     @State private var studioTab: StudioTab
     var shellSelection: Binding<StudioTab>?
+    var captureFolder: Binding<String>?
     @State private var scannerStarted = false
     @State private var heroIndex = 0
     @ScaledMetric(relativeTo: .title) private var heroHeight = 470
 
-    init(initialTab: StudioTab = .home, shellSelection: Binding<StudioTab>? = nil) {
+    init(initialTab: StudioTab = .home, shellSelection: Binding<StudioTab>? = nil, captureFolder: Binding<String>? = nil) {
         _studioTab = State(initialValue: initialTab)
         self.shellSelection = shellSelection
+        self.captureFolder = captureFolder
     }
     @FocusState private var searchFocused: Bool
     @Environment(\.scanTheme) private var theme
@@ -116,7 +118,10 @@ struct LibraryView:View {
             .navigationDestination(for: UUID.self) { id in
                 DocumentView(documentID: id, startCamera: newCapture == id)
             }
-            .onChange(of:folder) {_,_ in selected=[]}
+            .onChange(of:folder) { _, value in
+                selected = []
+                if studioTab == .sets { captureFolder?.wrappedValue = value }
+            }
             .onChange(of:search) {_,_ in selected=[]}
             .onChange(of:store.folders.map(\.id)) {_,ids in if let id=currentFolder,!ids.contains(id) {folder="all"}}
             .onChange(of:path) {previous,ids in trackPath(previous,ids)}
@@ -213,9 +218,18 @@ struct LibraryView:View {
         }
     }
 
+    private var scanFolder: UUID? {
+        if studio && studioTab == .scan {
+            guard let id = UUID(uuidString: captureFolder?.wrappedValue ?? ""),
+                  store.folders.contains(where: { $0.id == id }) else { return nil }
+            return id
+        }
+        return !studio || studioTab == .sets ? currentFolder : nil
+    }
+
     private func startScan() {
         guard !store.busy, store.savingPhotos == 0 else { return }
-        let id = store.newDocument(folderID: !studio || studioTab == .sets ? currentFolder : nil)
+        let id = store.newDocument(folderID: scanFolder)
         newCapture = id
         path.append(id)
     }
@@ -340,7 +354,7 @@ struct LibraryView:View {
         switch result {
         case .success(let urls):
             guard !urls.isEmpty else {return}
-            let id=store.newDocument(folderID: !studio || studioTab == .sets ? currentFolder : nil);path.append(id)
+            let id=store.newDocument(folderID: scanFolder);path.append(id)
             Task {await store.importFiles(urls,to:id);await store.analyze(id)}
         case .failure(let error):store.error=error.localizedDescription
         }
