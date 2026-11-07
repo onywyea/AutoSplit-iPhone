@@ -29,4 +29,7 @@ try:
   else: raise RuntimeError('Blank gallery frame: '+str(target))
   print('Captured',target,flush=True)
 finally:
- subprocess.run(['xcrun','simctl','shutdown',device],check=False)
+ try:
+  subprocess.run(['xcrun','simctl','shutdown',device],check=False,timeout=15)
+ except subprocess.TimeoutExpired:
+  print('Simulator shutdown timed out after captures; runner cleanup will stop it',flush=True)
