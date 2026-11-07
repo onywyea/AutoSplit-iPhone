@@ -217,9 +217,7 @@ struct LibraryView:View {
                                             .frame(width: 77, height: 86)
                                             .background(.white, in: RoundedRectangle(cornerRadius: 16))
                                             .clipShape(RoundedRectangle(cornerRadius: 16))
-                                        Text(StudioDocumentText(title: document.title, personName: document.personName,
-                                                                suffix: document.nameSuffix).title)
-                                            .font(.caption).lineLimit(2).frame(width: 77)
+                                        Text(document.title).font(.caption).lineLimit(2).frame(width: 77)
                                     }.accessibilityElement(children: .combine)
                                 }.buttonStyle(.plain).disabled(store.busy || store.savingPhotos > 0)
                             }

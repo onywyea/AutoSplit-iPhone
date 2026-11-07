@@ -165,6 +165,7 @@ struct StudioHero: View {
     let document: ScanDocument?
     let blocked: Bool
     let action: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var label: StudioDocumentText {
         StudioDocumentText(title: document?.title ?? "Скануйте документи",
@@ -172,14 +173,14 @@ struct StudioHero: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             StudioPageFan(files: Array((document?.pages ?? []).prefix(3).map(\.output)))
-                .padding(.bottom, 6)
+                .padding(.bottom, 4)
             Text(document == nil ? "SCANFLOW" : "ОСТАННІЙ КОМПЛЕКТ")
                 .font(.caption.weight(.medium)).tracking(1.5)
                 .foregroundStyle(.white.opacity(0.72))
             Text(label.title)
-                .font(.largeTitle.bold()).lineLimit(3)
+                .font(.title.bold()).lineLimit(3)
                 .fixedSize(horizontal: false, vertical: true)
             if !label.detail.isEmpty {
                 Text(label.detail).font(.title3).foregroundStyle(.white.opacity(0.9))
@@ -192,15 +193,17 @@ struct StudioHero: View {
             Button(action: action) {
                 HStack(spacing: 14) {
                     Text(document == nil ? "Новий скан" : "Продовжити")
+                        .fixedSize(horizontal: false, vertical: true)
                     Image(systemName: "arrow.right")
                 }
-                .font(.headline).frame(maxWidth: 260, minHeight: 50)
+                .font(.headline).padding(.horizontal, 20).padding(.vertical, 10)
+                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : 260, minHeight: 50)
                 .modifier(StudioGlassCapsule()).contentShape(Capsule())
             }
-            .buttonStyle(.plain).disabled(blocked).padding(.top, 6)
+            .buttonStyle(.plain).disabled(blocked).padding(.top, 4)
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 18)
+        .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
 
@@ -213,14 +216,14 @@ struct StudioPageFan: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let width = min(proxy.size.width, 360)
+            let width = min(proxy.size.width * 0.82, 300)
             let pageWidth = width * 0.43
             let pageHeight = pageWidth * 1.4142
             ZStack {
                 if files.count > 1 {
                     paper(files[1], width: pageWidth * 0.96, height: pageHeight * 0.96)
                         .rotationEffect(.degrees(reducedMotion ? 0 : -9))
-                        .offset(x: -width * 0.22, y: 3)
+                        .offset(x: -width * (files.count > 2 ? 0.22 : 0.12), y: 3)
                 }
                 if files.count > 2 {
                     paper(files[2], width: pageWidth * 0.96, height: pageHeight * 0.96)
@@ -229,6 +232,7 @@ struct StudioPageFan: View {
                 }
                 if let first = files.first {
                     paper(first, width: pageWidth, height: pageHeight)
+                        .offset(x: files.count == 2 ? width * 0.10 : 0)
                 } else {
                     Image(systemName: "doc.viewfinder")
                         .font(.system(size: 72, weight: .light)).foregroundStyle(.white.opacity(0.9))
@@ -236,7 +240,7 @@ struct StudioPageFan: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
         }
-        .frame(height: 236)
+        .frame(height: 192)
         .accessibilityHidden(true)
     }
 
