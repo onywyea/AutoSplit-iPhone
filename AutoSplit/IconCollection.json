@@ -2,51 +2,241 @@
   {
     "case": "prism",
     "name": "ScanFlowPrism",
-    "title": "Призма"
+    "title": "Перламутрові аркуші",
+    "collection": 1,
+    "number": 1,
+    "artwork_sha256": "1f81c7dd66c24a1ed1d08ddfad821a298d580f29a5b588497a11e9088ab3ea05"
   },
   {
     "case": "stack",
     "name": "ScanFlowStack",
-    "title": "Шари"
+    "title": "Перлинний сканер",
+    "collection": 1,
+    "number": 2,
+    "artwork_sha256": "88166d4bd0a8d6c20cd73e1d52390f7b8d7c9b593ca6e69247f7480f845160ac"
   },
   {
     "case": "lens",
     "name": "ScanFlowLens",
-    "title": "Об’єктив"
+    "title": "Перламутрова S",
+    "collection": 1,
+    "number": 3,
+    "artwork_sha256": "d81defb3e7f3cbf5b1cc4132b525d8f289dc77da9f2d1fb934de6f17cc805c10"
   },
   {
     "case": "ribbon",
     "name": "ScanFlowRibbon",
-    "title": "Потік S"
+    "title": "Конверт",
+    "collection": 1,
+    "number": 4,
+    "artwork_sha256": "585e66f1146e751b92f35a6d0ba8a944dbdcd868efa15493a917f1bf46e73f8e"
   },
   {
     "case": "portal",
     "name": "ScanFlowPortal",
-    "title": "Портал"
+    "title": "Скляне фоліо",
+    "collection": 1,
+    "number": 5,
+    "artwork_sha256": "d13ca1bc84de314fafdba925e26e8907c03210f22b25b36716ff874d4e17cc64"
   },
   {
     "case": "folio",
     "name": "ScanFlowFolio",
-    "title": "Фоліо"
+    "title": "Лупа",
+    "collection": 1,
+    "number": 6,
+    "artwork_sha256": "9db5e3a2559801da8968b9f2b6a6794e90951ea67f2d4a92e5d4c610cf746f2f"
   },
   {
     "case": "orbit",
     "name": "ScanFlowOrbit",
-    "title": "Орбіта"
+    "title": "Органайзер",
+    "collection": 1,
+    "number": 7,
+    "artwork_sha256": "7cdd5d2a6ae857ff853553b09dc0888315618a4bc8e8b303898758bb24aff37b"
   },
   {
     "case": "wave",
     "name": "ScanFlowWave",
-    "title": "Хвиля"
+    "title": "Вигнутий аркуш",
+    "collection": 1,
+    "number": 8,
+    "artwork_sha256": "6d14c530e9a497440a0040891e1c228b90334aef8a1bace96ee35625252fde2e"
   },
   {
     "case": "archive",
     "name": "ScanFlowArchive",
-    "title": "Архів"
+    "title": "Кришталева скріпка",
+    "collection": 1,
+    "number": 9,
+    "artwork_sha256": "9081c5f2cb7fc2d57cc87fb6418baef33105e84ea0cd493ae028a084ed663688"
   },
   {
     "case": "facet",
     "name": "ScanFlowFacet",
-    "title": "Кристал"
+    "title": "Кришталевий архів",
+    "collection": 1,
+    "number": 10,
+    "artwork_sha256": "b1e8669203f18e63bc640c86ab7bf8bfccbd5c08939366c6e13f3325693d5408"
+  },
+  {
+    "case": "art201",
+    "name": "ScanFlowArt201",
+    "title": "Блакитні аркуші",
+    "collection": 2,
+    "number": 11,
+    "artwork_sha256": "406754c8c2ba5f784fd174aa696f6c406d3e799cda3a7a83bf53210646beef75"
+  },
+  {
+    "case": "art202",
+    "name": "ScanFlowArt202",
+    "title": "Спектр",
+    "collection": 2,
+    "number": 12,
+    "artwork_sha256": "cc81bb3f5089bcb6481d5d1ca0511f56bd2bb4c28847901b06fd20742a7d5034"
+  },
+  {
+    "case": "art203",
+    "name": "ScanFlowArt203",
+    "title": "Фіолетові панелі",
+    "collection": 2,
+    "number": 13,
+    "artwork_sha256": "f11d6dff0d8b790bf1b74b6cf70fa1946f703769e655d5e17c774fa76a837e35"
+  },
+  {
+    "case": "art204",
+    "name": "ScanFlowArt204",
+    "title": "Зелений скан",
+    "collection": 2,
+    "number": 14,
+    "artwork_sha256": "7e525e96381bd61ba749bcb8c229bf60ae88d9964974e7cf7ce572d00fae7a1d"
+  },
+  {
+    "case": "art205",
+    "name": "ScanFlowArt205",
+    "title": "Бурштинова папка",
+    "collection": 2,
+    "number": 15,
+    "artwork_sha256": "7255a6fe06e2907f32df4e11be555625861d170dc9e2f9f24812aefc99bb149b"
+  },
+  {
+    "case": "art206",
+    "name": "ScanFlowArt206",
+    "title": "Коралова S",
+    "collection": 2,
+    "number": 16,
+    "artwork_sha256": "304a6e2957097f4a6d852dfd6110c7fab150c3ec4d19838b05d30e6edfe53327"
+  },
+  {
+    "case": "art207",
+    "name": "ScanFlowArt207",
+    "title": "Кольорові аркуші",
+    "collection": 2,
+    "number": 17,
+    "artwork_sha256": "cad9c1ffea26e3c91c42ac7b59d7323ecd90569e141d736bd4244ab3a7ab74ba"
+  },
+  {
+    "case": "art208",
+    "name": "ScanFlowArt208",
+    "title": "Блакитний сканер",
+    "collection": 2,
+    "number": 18,
+    "artwork_sha256": "f056000922b1fc019d293e28eed1b28bd3dea6e10dead100a8b7d91069bbea9c"
+  },
+  {
+    "case": "art209",
+    "name": "ScanFlowArt209",
+    "title": "Лілова скріпка",
+    "collection": 2,
+    "number": 19,
+    "artwork_sha256": "cca36f2a8cd94ddf9fc1fe8b896269f819754480a1ee78f3f38a4f7809f9972e"
+  },
+  {
+    "case": "art210",
+    "name": "ScanFlowArt210",
+    "title": "Кольорова лінза",
+    "collection": 2,
+    "number": 20,
+    "artwork_sha256": "de853ceb32554b81ea8e6e11b8a4dd472fadde79ba26d1a9a4f686181605c72e"
+  },
+  {
+    "case": "art301",
+    "name": "ScanFlowArt301",
+    "title": "М’ятний сканер",
+    "collection": 3,
+    "number": 21,
+    "artwork_sha256": "df412a0fe63c3554ba34bd2ef6384f40a1f2533089522b7de38b5e9426d38bcf"
+  },
+  {
+    "case": "art302",
+    "name": "ScanFlowArt302",
+    "title": "Бурштинова скріпка",
+    "collection": 3,
+    "number": 22,
+    "artwork_sha256": "325b0937c55c8235e029d0958bf662bd99b141a9fe0b2defd3f7855d47aeea1c"
+  },
+  {
+    "case": "art303",
+    "name": "ScanFlowArt303",
+    "title": "Розгорнуте фоліо",
+    "collection": 3,
+    "number": 23,
+    "artwork_sha256": "5eace7ae4275e6c7fcca0b1dbc9c896e9e30e5dfe1fe74049406b0dcb1c4971a"
+  },
+  {
+    "case": "art304",
+    "name": "ScanFlowArt304",
+    "title": "Фіолетовий потік",
+    "collection": 3,
+    "number": 24,
+    "artwork_sha256": "17a08982ec0da78e015f6df0a55ff5752bdd6d9d34612694a5ffbf44b99e278d"
+  },
+  {
+    "case": "art305",
+    "name": "ScanFlowArt305",
+    "title": "Зелений органайзер",
+    "collection": 3,
+    "number": 25,
+    "artwork_sha256": "bcf4e8a52c7f7dc4c45f2810435af47a34181ef2324b0985d83108a39973e803"
+  },
+  {
+    "case": "art306",
+    "name": "ScanFlowArt306",
+    "title": "Сапфіровий об’єктив",
+    "collection": 3,
+    "number": 26,
+    "artwork_sha256": "887a9275dba8dbd76bf8109800e84a74fa99af21f500c6d2040af5f39fd466c6"
+  },
+  {
+    "case": "art307",
+    "name": "ScanFlowArt307",
+    "title": "Рожева папка",
+    "collection": 3,
+    "number": 27,
+    "artwork_sha256": "04eb8fa801ebfa82dae247dfc7fa10bd04e13388f71bfa14a584cfd278ac778b"
+  },
+  {
+    "case": "art308",
+    "name": "ScanFlowArt308",
+    "title": "Кольорові кути",
+    "collection": 3,
+    "number": 28,
+    "artwork_sha256": "b9bdd60195ea884fc39074dc23f797cd4df6f32e72d4d3322479e058fb4a3a34"
+  },
+  {
+    "case": "art309",
+    "name": "ScanFlowArt309",
+    "title": "Яскравий комплект",
+    "collection": 3,
+    "number": 29,
+    "artwork_sha256": "f49406e1abf1bdb7eed114336c92b8f52eacaa6d844c09744780d593f361a34f"
+  },
+  {
+    "case": "art310",
+    "name": "ScanFlowArt310",
+    "title": "Блакитна печатка",
+    "collection": 3,
+    "number": 30,
+    "artwork_sha256": "2f479c87e4af5b7f07d8f0b0f9d0ecc231453776e40853700d6ce3eb51690ba1"
   }
 ]

@@ -90,8 +90,8 @@ jobs:
           assert info['UIFileSharingEnabled'] is True
           assert info['LSSupportsOpeningDocumentsInPlace'] is True
           assert info['CFBundleIdentifier'] == 'ua.autosplit.scanner'
-          assert info['CFBundleShortVersionString'] == '0.4.24'
-          assert info['CFBundleVersion'] == '46'
+          assert info['CFBundleShortVersionString'] == '0.4.25'
+          assert info['CFBundleVersion'] == '47'
           icons = info['CFBundleIcons']
           print('Compiled app icons:', icons)
           assert icons['CFBundlePrimaryIcon']['CFBundleIconName'] == 'ScanFlowIcon'
@@ -101,11 +101,11 @@ jobs:
           PYCODE
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/AutoSplit.app Payload/
-          zip -qr ScanFlow-0.4.24.ipa Payload
+          zip -qr ScanFlow-0.4.25.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ScanFlow-0.4.24-build46
-          path: ScanFlow-0.4.24.ipa
+          name: ScanFlow-0.4.25-build47
+          path: ScanFlow-0.4.25.ipa
           retention-days: 7
 
   preview:
@@ -152,11 +152,11 @@ jobs:
             -derivedDataPath preview-build CODE_SIGNING_ALLOWED=NO ARCHS=x86_64 ONLY_ACTIVE_ARCH=YES build > preview-build.log 2>&1 || { tail -100 preview-build.log; exit 1; }
       - name: Render exact simulator icon selection previews
         run: python3 scripts/render_icon_previews.py --platform iphonesimulator --app preview-build/Build/Products/Debug-iphonesimulator/AutoSplit.app
-      - name: Capture all ten icons and large text layout
+      - name: Capture all thirty icons and large text layout
         run: python3 scripts/preview_icons.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ScanFlow-0.4.24-design-preview
+          name: ScanFlow-0.4.25-design-preview
           path: design-preview/
           retention-days: 7

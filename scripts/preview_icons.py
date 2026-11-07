@@ -17,7 +17,7 @@ try:
  subprocess.run(['xcrun','simctl','bootstatus',device,'-b'],check=True,timeout=240)
  subprocess.check_call(['xcrun','simctl','status_bar',device,'override','--time','9:41','--batteryState','charged','--batteryLevel','100'])
  subprocess.check_call(['xcrun','simctl','install',device,app])
- for size,start in [('large','prism'),('large','portal'),('large','archive'),('accessibility-large','prism')]:
+ for size,start in [(size, start) for size in ['large'] for start in ['prism','portal','archive','art201','art205','art209','art301','art305','art309']] + [('accessibility-large','art309')]:
   subprocess.run(['xcrun','simctl','terminate',device,'ua.autosplit.scanner'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   subprocess.check_call(['xcrun','simctl','ui',device,'content_size',size])
   subprocess.check_call(['xcrun','simctl','launch',device,'ua.autosplit.scanner','--preview-icons','--preview-icon-scroll',start])

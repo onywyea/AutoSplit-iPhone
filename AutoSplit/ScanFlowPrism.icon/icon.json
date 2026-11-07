@@ -1,66 +1,24 @@
 {
   "fill": {
     "linear-gradient": [
-      "srgb:0.440,0.310,0.760,1.000",
-      "srgb:0.080,0.045,0.210,1.000"
+      "srgb:0.05,0.05,0.08,1.0",
+      "srgb:0.05,0.05,0.08,1.0"
     ]
   },
   "groups": [
     {
-      "name": "Optical layer 1",
+      "name": "Approved artwork",
       "layers": [
         {
-          "name": "Shape 1",
-          "image-name": "Layer1.svg",
-          "glass": true
+          "name": "Artwork",
+          "image-name": "Artwork.png",
+          "glass": false
         }
       ],
-      "specular": true,
+      "specular": false,
       "shadow": {
         "kind": "neutral",
-        "opacity": 0.15
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.3
-      }
-    },
-    {
-      "name": "Optical layer 2",
-      "layers": [
-        {
-          "name": "Shape 2",
-          "image-name": "Layer2.svg",
-          "glass": true
-        }
-      ],
-      "specular": true,
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.15
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.2
-      }
-    },
-    {
-      "name": "Optical layer 3",
-      "layers": [
-        {
-          "name": "Shape 3",
-          "image-name": "Layer3.svg",
-          "glass": true
-        }
-      ],
-      "specular": true,
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.15
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.2
+        "opacity": 0
       }
     }
   ],

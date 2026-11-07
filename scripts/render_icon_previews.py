@@ -20,6 +20,13 @@ args = parser.parse_args()
 assert args.app.is_dir(), args.app
 names = ['ScanFlowIcon', 'ScanFlowPearl', 'ScanFlowGraphite', 'ScanFlowClassic'] + [i['name'] for i in json.loads(Path('AutoSplit/IconCollection.json').read_text())]
 def render(name):
+    artwork = Path('AutoSplit') / (name + '.icon') / 'Assets/Artwork.png'
+    if artwork.is_file():
+        destination = args.app / ('IconPreview-' + name + '.png')
+        subprocess.run(['sips', '-z', '180', '180', str(artwork), '--out', str(destination)], check=True, stdout=subprocess.DEVNULL)
+        assert destination.stat().st_size > 1000
+        print(f'{name}: exact artwork preview', flush=True)
+        return
     with tempfile.TemporaryDirectory(prefix='scanflow-icon-') as folder:
         out = Path(folder)
         command = ['xcrun', '--sdk', args.platform, 'actool',
