@@ -18,7 +18,7 @@ parser.add_argument('--platform', choices=['iphoneos', 'iphonesimulator'], requi
 parser.add_argument('--app', type=Path, required=True)
 args = parser.parse_args()
 assert args.app.is_dir(), args.app
-names = ['ScanFlowIcon', 'ScanFlowPearl', 'ScanFlowGraphite', 'ScanFlowClassic'] + [i['name'] for i in json.loads(Path('AutoSplit/IconCollection.json').read_text())]
+names = ['ScanFlowAmber','ScanFlowViolet','ScanFlowCoral','ScanFlowCyan','ScanFlowPink']
 def render(name):
     artwork = Path('AutoSplit') / (name + '.icon') / 'Assets/Artwork.png'
     if artwork.is_file():

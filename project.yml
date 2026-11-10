@@ -27,13 +27,13 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: ScanFlow
         INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
-        ASSETCATALOG_COMPILER_APPICON_NAME: ScanFlowIcon
-        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "ScanFlowPearl ScanFlowGraphite ScanFlowClassic ScanFlowPrism ScanFlowStack ScanFlowLens ScanFlowRibbon ScanFlowPortal ScanFlowFolio ScanFlowOrbit ScanFlowWave ScanFlowArchive ScanFlowFacet ScanFlowArt201 ScanFlowArt202 ScanFlowArt203 ScanFlowArt204 ScanFlowArt205 ScanFlowArt206 ScanFlowArt207 ScanFlowArt208 ScanFlowArt209 ScanFlowArt210 ScanFlowArt301 ScanFlowArt302 ScanFlowArt303 ScanFlowArt304 ScanFlowArt305 ScanFlowArt306 ScanFlowArt307 ScanFlowArt308 ScanFlowArt309 ScanFlowArt310"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ScanFlowAmber
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "ScanFlowViolet ScanFlowCoral ScanFlowCyan ScanFlowPink"
         INFOPLIST_KEY_NSCameraUsageDescription: Сканування документів у PDF
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        MARKETING_VERSION: '0.4.25'
-        CURRENT_PROJECT_VERSION: 47
+        MARKETING_VERSION: '0.4.26'
+        CURRENT_PROJECT_VERSION: 48
         CODE_SIGNING_ALLOWED: NO
     scheme:
       testTargets: []

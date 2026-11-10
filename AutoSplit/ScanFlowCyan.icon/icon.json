@@ -1,0 +1,16 @@
+{
+  "fill": {
+    "color": "srgb:0.1,0.1,0.1,1.0"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "name": "Artwork",
+          "image-name": "Artwork.png",
+          "glass": false
+        }
+      ]
+    }
+  ]
+}
