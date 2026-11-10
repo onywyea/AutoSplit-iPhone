@@ -1,16 +1,28 @@
 {
   "fill": {
-    "color": "srgb:0.1,0.1,0.1,1.0"
+    "linear-gradient": [
+      "srgb:0.05,0.05,0.08,1.0",
+      "srgb:0.05,0.05,0.08,1.0"
+    ]
   },
   "groups": [
     {
+      "name": "Approved artwork",
       "layers": [
         {
           "name": "Artwork",
           "image-name": "Artwork.png",
           "glass": false
         }
-      ]
+      ],
+      "specular": false,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      }
     }
-  ]
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
 }
