@@ -1,0 +1,1 @@
+Extract contents to root of AutoSplit-iPhone. Run: python apply_patch.py. Then git add -A && git commit -m "Five icons only" && git push. GitHub Actions creates IPA. This is a source patch, not a signed IPA.
